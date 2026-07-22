@@ -68,8 +68,8 @@ internal sealed partial class CommanderSupplyHeliService
                 return;
             }
 
-            hq.AddFunds(-cost);
-            hq.ModifyUnitSupply(aircraft.Definition, 1);
+            CommanderNetworkHelper.RequestAddFunds(hq, -cost);
+            CommanderNetworkHelper.RequestModifyUnitSupply(hq, aircraft.Definition, 1);
             purchased = true;
         }
 
@@ -90,8 +90,8 @@ internal sealed partial class CommanderSupplyHeliService
             ship);
 
         int liveryIndex = aircraft.Definition.aircraftParameters.GetRandomLiveryForFaction(hq.faction);
-        Airbase.TrySpawnResult result = airbase.TrySpawnAircraft(
-            null,
+        Airbase.TrySpawnResult result = CommanderNetworkHelper.RequestAircraftSpawn(
+            airbase,
             aircraft.Definition,
             new LiveryKey(liveryIndex),
             loadout,
@@ -101,8 +101,8 @@ internal sealed partial class CommanderSupplyHeliService
             pendingAircraftSpawn = null;
             if (purchased)
             {
-                hq.ModifyUnitSupply(aircraft.Definition, -1);
-                hq.AddFunds(aircraft.Definition.value);
+                CommanderNetworkHelper.RequestModifyUnitSupply(hq, aircraft.Definition, -1);
+                CommanderNetworkHelper.RequestAddFunds(hq, aircraft.Definition.value);
             }
 
             SetStatus("The nearest compatible airfield rejected the naval-supply spawn.");

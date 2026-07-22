@@ -108,7 +108,7 @@ internal sealed class CommanderRadarService
                 return;
             }
 
-            if (AircraftRpcToggleRadarMethod != null && aircraft.IsServer)
+            if (AircraftRpcToggleRadarMethod != null)
             {
                 AircraftRpcToggleRadarMethod.Invoke(aircraft, new object[] { enable });
             }

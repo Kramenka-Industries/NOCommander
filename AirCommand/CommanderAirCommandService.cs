@@ -828,9 +828,9 @@ internal sealed partial class CommanderAirCommandService
 
     private void SpawnMission(AirMissionOption option, Airbase airbase, GlobalPosition target)
     {
-        if (NetworkManagerNuclearOption.i == null || !NetworkManagerNuclearOption.i.Server.Active)
+        if (NetworkManagerNuclearOption.i == null)
         {
-            SetStatus("Air Command is host-only.");
+            SetStatus("Network manager is not available.");
             return;
         }
 
@@ -862,8 +862,8 @@ internal sealed partial class CommanderAirCommandService
                 return;
             }
 
-            hq.AddFunds(-option.Definition.value);
-            hq.ModifyUnitSupply(option.Definition, 1);
+            CommanderNetworkHelper.RequestAddFunds(hq, -option.Definition.value);
+            CommanderNetworkHelper.RequestModifyUnitSupply(hq, option.Definition, 1);
             purchased = true;
         }
 
@@ -885,14 +885,14 @@ internal sealed partial class CommanderAirCommandService
             pendingAircraftSpawn = null;
             if (purchased)
             {
-                hq.ModifyUnitSupply(option.Definition, -1);
-                hq.AddFunds(option.Definition.value);
+                CommanderNetworkHelper.RequestModifyUnitSupply(hq, option.Definition, -1);
+                CommanderNetworkHelper.RequestAddFunds(hq, option.Definition.value);
             }
             SetStatus(loadoutError);
             return;
         }
-        Airbase.TrySpawnResult result = airbase.TrySpawnAircraft(
-            null,
+        Airbase.TrySpawnResult result = CommanderNetworkHelper.RequestAircraftSpawn(
+            airbase,
             option.Definition,
             new LiveryKey(liveryIndex),
             loadout,
@@ -902,8 +902,8 @@ internal sealed partial class CommanderAirCommandService
             pendingAircraftSpawn = null;
             if (purchased)
             {
-                hq.ModifyUnitSupply(option.Definition, -1);
-                hq.AddFunds(option.Definition.value);
+                CommanderNetworkHelper.RequestModifyUnitSupply(hq, option.Definition, -1);
+                CommanderNetworkHelper.RequestAddFunds(hq, option.Definition.value);
             }
             SetStatus("The selected airbase rejected the aircraft spawn.");
             return;

@@ -89,11 +89,11 @@ internal sealed class CommanderFactionVehicleService
 
         if (hq.GetUnitSupply(definition) > 0)
         {
-            hq.ModifyUnitSupply(definition, -1);
+            CommanderNetworkHelper.RequestModifyUnitSupply(hq, definition, -1);
             return;
         }
 
-        hq.AddFunds(-GetPurchaseCost(definition));
+        CommanderNetworkHelper.RequestAddFunds(hq, -GetPurchaseCost(definition));
     }
 
     internal bool ShouldBlockAutomaticDeployment(VehicleDepot depot, VehicleDefinition definition)

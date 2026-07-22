@@ -157,8 +157,8 @@ internal sealed partial class CommanderSupplyHeliService
                 return;
             }
 
-            hq.AddFunds(-cost);
-            hq.ModifyUnitSupply(aircraftOption.Definition, 1);
+            CommanderNetworkHelper.RequestAddFunds(hq, -cost);
+            CommanderNetworkHelper.RequestModifyUnitSupply(hq, aircraftOption.Definition, 1);
             purchased = true;
         }
 
@@ -178,8 +178,8 @@ internal sealed partial class CommanderSupplyHeliService
         AircraftDefinition definition = aircraftOption.Definition;
         int liveryIndex = definition.aircraftParameters.GetRandomLiveryForFaction(hq.faction);
         Loadout loadout = CloneLoadout(request.Loadout);
-        Airbase.TrySpawnResult result = airbase.TrySpawnAircraft(
-            null,
+        Airbase.TrySpawnResult result = CommanderNetworkHelper.RequestAircraftSpawn(
+            airbase,
             definition,
             new LiveryKey(liveryIndex),
             loadout,
@@ -190,8 +190,8 @@ internal sealed partial class CommanderSupplyHeliService
             pendingAircraftSpawn = null;
             if (purchased)
             {
-                hq.ModifyUnitSupply(definition, -1);
-                hq.AddFunds(definition.value);
+                CommanderNetworkHelper.RequestModifyUnitSupply(hq, definition, -1);
+                CommanderNetworkHelper.RequestAddFunds(hq, definition.value);
             }
 
             SetStatus("The airbase rejected the supply aircraft spawn.");
@@ -569,8 +569,8 @@ internal sealed partial class CommanderSupplyHeliService
             return;
         }
 
-        mission.Hq.ModifyUnitSupply(aircraft.definition, -1);
-        mission.Hq.AddFunds(mission.PurchaseCost);
+        CommanderNetworkHelper.RequestModifyUnitSupply(mission.Hq, aircraft.definition, -1);
+        CommanderNetworkHelper.RequestAddFunds(mission.Hq, mission.PurchaseCost);
         mission.PurchaseRefunded = true;
     }
 
