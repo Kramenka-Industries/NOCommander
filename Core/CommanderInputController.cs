@@ -86,9 +86,12 @@ internal sealed class CommanderInputController
 
         if (Input.GetMouseButton(0))
         {
-            if (!isDragging && Vector2.Distance(mousePosition, dragStart) > DragThreshold)
+            if (!overlayUi.ContainsScreenPoint(mousePosition))
             {
-                isDragging = true;
+                if (!isDragging && Vector2.Distance(mousePosition, dragStart) > DragThreshold)
+                {
+                    isDragging = true;
+                }
             }
 
             if (isDragging)
