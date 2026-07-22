@@ -8,7 +8,8 @@ airbases, dynamic map, faction economy, and tracking data where possible.
 
 - Free commander camera
 - Lightweight friendly and datalink unit markers
-- 3D single selection and `Shift` multi-selection
+- 3D single selection, click and drag box selection, and `Shift` multi-selection
+- Assign unit control groups 1 - 9 with Ctrl+Numberkey and reselect them with Numberkey
 - 3D movement orders for friendly ground vehicles and ships
 - Depot spawn queues, rally points, and faction vehicle reserves
 - Tactical map and draggable/scalable commander UI

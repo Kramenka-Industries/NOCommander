@@ -14,6 +14,14 @@ internal sealed class CommanderInputController
     private readonly CommanderMobileEmplacementService mobileEmplacementService;
     private readonly CommanderAirCommandService airCommandService;
 
+    private bool isDragging;
+    private Vector2 dragStart;
+    private const float DragThreshold = 8f;
+
+    internal static CommanderInputController? Instance { get; private set; }
+    internal bool IsBoxSelecting => isDragging;
+    internal Rect BoxSelectionScreenRect { get; private set; }
+
     internal CommanderInputController(
         CommanderOverlayUi overlayUi,
         CommanderSelectionService selectionService,
@@ -34,6 +42,7 @@ internal sealed class CommanderInputController
         this.supplyHeliService = supplyHeliService;
         this.mobileEmplacementService = mobileEmplacementService;
         this.airCommandService = airCommandService;
+        Instance = this;
     }
 
     internal void Tick()
@@ -55,14 +64,73 @@ internal sealed class CommanderInputController
             return;
         }
 
-        if (Input.GetMouseButtonDown(0))
-        {
-            HandlePrimaryClick(mousePosition);
-        }
+        HandleControlGroups();
+        HandleBoxSelection(mousePosition);
 
         if (Input.GetMouseButtonDown(1))
         {
             HandleSecondaryClick(mousePosition);
+        }
+    }
+
+    private void HandleBoxSelection(Vector2 mousePosition)
+    {
+        if (Input.GetMouseButtonDown(0))
+        {
+            if (!overlayUi.ContainsScreenPoint(mousePosition))
+            {
+                dragStart = mousePosition;
+                isDragging = false;
+            }
+        }
+
+        if (Input.GetMouseButton(0))
+        {
+            if (!isDragging && Vector2.Distance(mousePosition, dragStart) > DragThreshold)
+            {
+                isDragging = true;
+            }
+
+            if (isDragging)
+            {
+                float xMin = Mathf.Min(dragStart.x, mousePosition.x);
+                float xMax = Mathf.Max(dragStart.x, mousePosition.x);
+                float yMin = Mathf.Min(dragStart.y, mousePosition.y);
+                float yMax = Mathf.Max(dragStart.y, mousePosition.y);
+                BoxSelectionScreenRect = new Rect(xMin, yMin, xMax - xMin, yMax - yMin);
+            }
+        }
+
+        if (Input.GetMouseButtonUp(0))
+        {
+            if (isDragging)
+            {
+                selectionService.SelectUnitsInScreenRect(BoxSelectionScreenRect);
+                isDragging = false;
+            }
+            else
+            {
+                HandlePrimaryClick(mousePosition);
+            }
+        }
+    }
+
+    private void HandleControlGroups()
+    {
+        bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+        for (int i = 0; i < 9; i++)
+        {
+            if (Input.GetKeyDown(KeyCode.Alpha1 + i))
+            {
+                if (ctrl)
+                {
+                    selectionService.AssignControlGroup(i);
+                }
+                else
+                {
+                    selectionService.RecallControlGroup(i);
+                }
+            }
         }
     }
 

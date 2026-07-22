@@ -192,6 +192,8 @@ internal sealed class CommanderOverlayUi
         if (airCommandUi.Visible)
         {
             return (showAirCommandUi && airCommandUi.ContainsScreenPoint(screenPoint))
+                || (showDepotUi && depotUi.ContainsScreenPoint(screenPoint))
+                || (showSupplyUi && supplyHeliUi.ContainsScreenPoint(screenPoint))
                 || (bindingWarningVisible && bindingWarningRect.Contains(guiPoint));
         }
         return launcherRect.Contains(guiPoint)

@@ -126,6 +126,10 @@ internal sealed class CommanderModeController : MonoBehaviour
             {
                 tacticalMapService?.DrawControls();
             }
+            if (inputController != null && inputController.IsBoxSelecting)
+            {
+                DrawBoxSelection(inputController.BoxSelectionScreenRect);
+            }
         }
         finally
         {
@@ -266,6 +270,26 @@ internal sealed class CommanderModeController : MonoBehaviour
         nextInactiveEntryProbeAt = 0f;
         factionVehicleService?.ResetSession();
         spawnService?.ResetSession();
+    }
+
+    private static void DrawBoxSelection(Rect screenRect)
+    {
+        CommanderUiTheme.Ensure();
+        // Convert screen rect (Y=0 bottom) to GUI rect (Y=0 top, scaled)
+        float xMin = screenRect.xMin;
+        float xMax = screenRect.xMax;
+        float yMin = screenRect.yMin;
+        float yMax = screenRect.yMax;
+        Vector2 topLeft = CommanderUiScale.ScreenToGui(new Vector2(xMin, yMax));
+        Vector2 bottomRight = CommanderUiScale.ScreenToGui(new Vector2(xMax, yMin));
+        Rect guiRect = new(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
+
+        Color previous = GUI.color;
+        GUI.color = new Color(0.2f, 0.85f, 0.82f, 0.15f);
+        GUI.DrawTexture(guiRect, CommanderUiTheme.BorderTexture);
+        GUI.color = new Color(0.2f, 0.85f, 0.82f, 0.8f);
+        CommanderUiTheme.DrawFrame(guiRect, 1f);
+        GUI.color = previous;
     }
 
 }

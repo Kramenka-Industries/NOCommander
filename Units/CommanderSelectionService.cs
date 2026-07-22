@@ -18,9 +18,15 @@ internal sealed class CommanderSelectionService
     internal IReadOnlyList<Unit> MissionUnits => missionUnits;
     internal static CommanderSelectionService? Instance { get; private set; }
 
+    private readonly List<Unit>[] controlGroups = new List<Unit>[9];
+
     internal CommanderSelectionService()
     {
         Instance = this;
+        for (int i = 0; i < controlGroups.Length; i++)
+        {
+            controlGroups[i] = new List<Unit>();
+        }
     }
     internal Unit? PrimarySelection => selectedUnits.Count > 0 ? selectedUnits[0] : null;
     internal Unit? FocusedSelection => GetDetailTargetUnit();
@@ -214,6 +220,84 @@ internal sealed class CommanderSelectionService
         }
 
         dynamicMap.SelectIcon(unit);
+    }
+
+    internal void SelectUnitsInScreenRect(Rect screenRect)
+    {
+        Camera? camera = SceneSingleton<CameraStateManager>.i?.mainCamera;
+        FactionHQ? localHq = CommanderGameAccess.GetLocalHq();
+        if (camera == null || localHq == null || localHq.factionUnits == null)
+        {
+            return;
+        }
+
+        selectedUnits.Clear();
+        SceneSingleton<DynamicMap>.i?.DeselectAllIcons();
+
+        foreach (PersistentID unitId in localHq.factionUnits)
+        {
+            if (!unitId.TryGetUnit(out Unit unit))
+            {
+                continue;
+            }
+
+            if (!CommanderGameAccess.ShouldAllowCommanderSelection(unit, localHq))
+            {
+                continue;
+            }
+
+            Vector3 screenPos = camera.WorldToScreenPoint(unit.transform.position);
+            if (screenPos.z <= 0f)
+            {
+                continue;
+            }
+
+            if (screenRect.Contains(new Vector2(screenPos.x, screenPos.y)))
+            {
+                SelectUnit(unit, true);
+            }
+        }
+    }
+
+    internal void AssignControlGroup(int groupIndex)
+    {
+        if (groupIndex < 0 || groupIndex >= controlGroups.Length)
+        {
+            return;
+        }
+
+        controlGroups[groupIndex].Clear();
+        controlGroups[groupIndex].AddRange(selectedUnits);
+    }
+
+    internal void RecallControlGroup(int groupIndex)
+    {
+        if (groupIndex < 0 || groupIndex >= controlGroups.Length)
+        {
+            return;
+        }
+
+        List<Unit> group = controlGroups[groupIndex];
+        for (int i = group.Count - 1; i >= 0; i--)
+        {
+            if (group[i] == null || group[i].disabled)
+            {
+                group.RemoveAt(i);
+            }
+        }
+
+        if (group.Count == 0)
+        {
+            return;
+        }
+
+        DeselectAll();
+        for (int i = 0; i < group.Count; i++)
+        {
+            SelectUnit(group[i], true);
+        }
+
+        CommanderCameraFollowService.Instance?.CenterOnSelectionIfFollowing();
     }
 
     internal void DeselectAll()

@@ -42,6 +42,19 @@ internal sealed class CommanderMoveService
 
         bool hasGroundDestination = CommanderGameAccess.TryRaycastWorldPosition(screenPosition, out GlobalPosition groundDestination);
         bool hasWaterDestination = CommanderGameAccess.TryRaycastWaterPosition(screenPosition, out GlobalPosition waterDestination);
+
+        int commandableCount = 0;
+        for (int i = 0; i < selectionService.SelectedUnits.Count; i++)
+        {
+            if (CommanderGameAccess.ShouldAllowCommanderMove(selectionService.SelectedUnits[i]))
+            {
+                commandableCount++;
+            }
+        }
+
+        float spacing = CommanderSettings.MoveSpacing;
+        int assignedIndex = 0;
+
         for (int i = 0; i < selectionService.SelectedUnits.Count; i++)
         {
             Unit unit = selectionService.SelectedUnits[i];
@@ -62,10 +75,46 @@ internal sealed class CommanderMoveService
                 destination = groundDestination;
             }
 
+            if (commandableCount > 1)
+            {
+                destination = ApplyFormationOffset(destination, assignedIndex, commandableCount, spacing);
+                assignedIndex++;
+            }
+
             UnitCommand? unitCommand = CommanderGameAccess.GetUnitCommand(unit);
             stoppedUnits.Remove(unit);
             CommanderGameAccess.SetUnitHoldPosition(unit, false);
             unitCommand?.SetDestination(destination, true);
+        }
+    }
+
+    private static GlobalPosition ApplyFormationOffset(GlobalPosition center, int index, int count, float spacing)
+    {
+        string formation = CommanderSettings.MoveFormation;
+        if (formation == "Line")
+        {
+            float offset = (index - (count - 1) / 2f) * spacing;
+            return new GlobalPosition(center.x + offset, center.y, center.z);
+        }
+        else if (formation == "Quadratic")
+        {
+            int cols = Mathf.CeilToInt(Mathf.Sqrt(count));
+            int row = index / cols;
+            int col = index % cols;
+            float offsetX = (col - (cols - 1) / 2f) * spacing;
+            int rowsTotal = Mathf.CeilToInt((float)count / cols);
+            float offsetZ = (row - (rowsTotal - 1) / 2f) * spacing;
+            return new GlobalPosition(center.x + offsetX, center.y, center.z + offsetZ);
+        }
+        else
+        {
+            // Circular (default)
+            if (count == 1) return center;
+            float angle = 2f * Mathf.PI * index / count;
+            float radius = count * spacing / (2f * Mathf.PI);
+            float offsetX = Mathf.Cos(angle) * radius;
+            float offsetZ = Mathf.Sin(angle) * radius;
+            return new GlobalPosition(center.x + offsetX, center.y, center.z + offsetZ);
         }
     }
 
