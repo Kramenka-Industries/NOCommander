@@ -118,9 +118,9 @@ internal sealed class CommanderMobileEmplacementService
             return;
         }
 
-        if (NetworkManagerNuclearOption.i == null || !NetworkManagerNuclearOption.i.Server.Active)
+        if (!CommanderNetworkHelper.HasServerAuthority)
         {
-            SetStatus("Mobile emplacements are host-only.");
+            SetStatus("Mobile emplacements require host authority (the host manages trailer lifecycle).");
             return;
         }
 

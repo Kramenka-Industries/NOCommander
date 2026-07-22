@@ -145,6 +145,10 @@ internal sealed class CommanderMoveService
         {
             return;
         }
+        if (!CommanderNetworkHelper.HasServerAuthority)
+        {
+            return;
+        }
         foreach (Unit unit in stoppedUnits)
         {
             if (unit.rb == null)

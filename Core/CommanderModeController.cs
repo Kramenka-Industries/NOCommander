@@ -270,6 +270,7 @@ internal sealed class CommanderModeController : MonoBehaviour
         nextInactiveEntryProbeAt = 0f;
         factionVehicleService?.ResetSession();
         spawnService?.ResetSession();
+        CommanderNetworkHelper.ResetSession();
     }
 
     private static void DrawBoxSelection(Rect screenRect)

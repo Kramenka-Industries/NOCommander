@@ -564,9 +564,9 @@ internal sealed partial class CommanderSupplyHeliService
     private static bool CanHostSpawn(out FactionHQ? hq, out string error)
     {
         hq = null;
-        if (NetworkManagerNuclearOption.i == null || !NetworkManagerNuclearOption.i.Server.Active)
+        if (NetworkManagerNuclearOption.i == null)
         {
-            error = "Supply aircraft can only be spawned by the host.";
+            error = "Network manager is not available.";
             return false;
         }
 

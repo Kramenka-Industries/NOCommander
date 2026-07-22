@@ -840,7 +840,7 @@ internal sealed class CommanderSpawnService
             }
 
             SnapshotKnownFriendlyUnits(queue);
-            if (!queue.Depot.TrySpawnVehicle(definition))
+            if (!CommanderNetworkHelper.RequestDepotSpawn(queue.Depot, definition))
             {
                 continue;
             }
