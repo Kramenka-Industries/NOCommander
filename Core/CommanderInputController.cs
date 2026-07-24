@@ -81,20 +81,26 @@ internal sealed class CommanderInputController
             {
                 dragStart = mousePosition;
                 isDragging = false;
+            }
+        }
 
+        if (CommanderSettings.PrimaryAction.IsPressed())
+        {
+            if (!overlayUi.ContainsScreenPoint(mousePosition))
+            {
                 if (!isDragging && Vector2.Distance(mousePosition, dragStart) > DragThreshold)
                 {
                     isDragging = true;
                 }
+            }
 
-                if (isDragging)
-                {
+            if (isDragging)
+            {
                 float xMin = Mathf.Min(dragStart.x, mousePosition.x);
                 float xMax = Mathf.Max(dragStart.x, mousePosition.x);
                 float yMin = Mathf.Min(dragStart.y, mousePosition.y);
                 float yMax = Mathf.Max(dragStart.y, mousePosition.y);
                 BoxSelectionScreenRect = new Rect(xMin, yMin, xMax - xMin, yMax - yMin);
-                }
             }
         }
 
