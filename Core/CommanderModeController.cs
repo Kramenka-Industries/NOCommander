@@ -14,6 +14,7 @@ internal sealed class CommanderModeController : MonoBehaviour
     private CommanderRadarService? radarService;
     private CommanderMobileEmplacementService? mobileEmplacementService;
     private CommanderDirectPathService? directPathService;
+    private CommanderRepairService? repairService;
     private CommanderSupplyHeliService? supplyHeliService;
     private CommanderAirCommandService? airCommandService;
     private CommanderSpawnService? spawnService;
@@ -39,6 +40,7 @@ internal sealed class CommanderModeController : MonoBehaviour
         radarService = new CommanderRadarService(selectionService);
         mobileEmplacementService = new CommanderMobileEmplacementService(selectionService);
         directPathService = new CommanderDirectPathService(selectionService);
+        repairService = new CommanderRepairService();
         supplyHeliService = new CommanderSupplyHeliService();
         airCommandService = new CommanderAirCommandService(tacticalMapService);
         spawnService = new CommanderSpawnService(selectionService, factionVehicleService, tacticalMapService);
@@ -55,6 +57,7 @@ internal sealed class CommanderModeController : MonoBehaviour
             spawnService,
             radarService,
             mobileEmplacementService,
+            repairService,
             directPathService,
             supplyHeliService,
             airCommandService,
@@ -81,7 +84,7 @@ internal sealed class CommanderModeController : MonoBehaviour
             return;
         }
 
-        if (Input.GetKeyDown(KeyCode.H))
+        if (CommanderSettings.ToggleUi.IsDown())
         {
             overlayUi?.ToggleScreenshotUi();
         }
@@ -264,6 +267,7 @@ internal sealed class CommanderModeController : MonoBehaviour
         radarService?.ResetSession();
         mobileEmplacementService?.ResetSession();
         directPathService?.ResetSession();
+        repairService?.ResetSession();
         supplyHeliService?.ResetSession();
         airCommandService?.ResetSession();
         aircraftSelectionMenuPresent = false;

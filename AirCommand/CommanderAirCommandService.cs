@@ -62,6 +62,16 @@ internal sealed partial class CommanderAirCommandService
     internal float SelectedTargetAltitude => selectedTargetAltitude;
     internal bool TargetOrdnance { get => CommanderSettings.AirGuardTargetOrdnance; set => CommanderSettings.AirGuardTargetOrdnance = value; }
     internal bool SaturationAttack { get => CommanderSettings.AradSaturationAttack; set => CommanderSettings.AradSaturationAttack = value; }
+    internal bool IncludeInternalCannons
+    {
+        get => CommanderSettings.AirIncludeInternalCannons;
+        set
+        {
+            if (CommanderSettings.AirIncludeInternalCannons == value) return;
+            CommanderSettings.AirIncludeInternalCannons = value;
+            ApplySelectedWeaponsAndSort();
+        }
+    }
     internal bool AwaitingAreaSelection => pendingAreaSelection != null;
     internal float PendingMissionRadius => pendingAreaSelection != null ? GetMissionRadius(pendingAreaSelection.Option.Mode) : 0f;
     internal int ActiveMissionCount => missions.Count;
@@ -120,7 +130,7 @@ internal sealed partial class CommanderAirCommandService
     {
         if (pendingAreaSelection != null)
         {
-            if (Input.GetKeyDown(KeyCode.Escape))
+            if (CommanderGameInput.CancelDown)
             {
                 CancelAreaSelection(showStatus: true);
             }
@@ -156,7 +166,7 @@ internal sealed partial class CommanderAirCommandService
 
     internal void SetUiVisible(bool visible)
     {
-        uiVisible = visible && CommanderSettings.EnableAirCommand;
+        uiVisible = visible;
         if (visible)
         {
             RefreshOptions();
@@ -300,12 +310,6 @@ internal sealed partial class CommanderAirCommandService
 
     internal void BeginAreaSelection()
     {
-        if (!CommanderSettings.EnableAirCommand)
-        {
-            SetStatus("Air Command is disabled in Commander settings.");
-            return;
-        }
-
         AirMissionOption? option = SelectedOption;
         AirbaseOption? airbase = SelectedAirbase;
         if (option == null)
@@ -331,7 +335,7 @@ internal sealed partial class CommanderAirCommandService
         tacticalMapService.SuppressMapFollow = true;
         mapClickTracker.Reset();
         UpdatePendingAreaPreview();
-        SetStatus("Select the mission area on the tactical map or in the 3D world. Esc cancels.");
+        SetStatus("Select the mission area on the tactical map or in the 3D world. The game's Cancel binding cancels.");
     }
 
     internal bool TrySetAreaFromWorld(Vector2 screenPosition)

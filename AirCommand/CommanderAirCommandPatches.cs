@@ -96,4 +96,5 @@ internal static class CommanderAirCommandPatches
     {
         return StateAircraftField?.GetValue(state) as Aircraft;
     }
+
 }

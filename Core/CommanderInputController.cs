@@ -67,7 +67,7 @@ internal sealed class CommanderInputController
         HandleControlGroups();
         HandleBoxSelection(mousePosition);
 
-        if (Input.GetMouseButtonDown(1))
+        if (CommanderSettings.SecondaryAction.IsDown())
         {
             HandleSecondaryClick(mousePosition);
         }
@@ -75,36 +75,30 @@ internal sealed class CommanderInputController
 
     private void HandleBoxSelection(Vector2 mousePosition)
     {
-        if (Input.GetMouseButtonDown(0))
+        if (CommanderSettings.PrimaryAction.IsDown())
         {
             if (!overlayUi.ContainsScreenPoint(mousePosition))
             {
                 dragStart = mousePosition;
                 isDragging = false;
-            }
-        }
 
-        if (Input.GetMouseButton(0))
-        {
-            if (!overlayUi.ContainsScreenPoint(mousePosition))
-            {
                 if (!isDragging && Vector2.Distance(mousePosition, dragStart) > DragThreshold)
                 {
                     isDragging = true;
                 }
-            }
 
-            if (isDragging)
-            {
+                if (isDragging)
+                {
                 float xMin = Mathf.Min(dragStart.x, mousePosition.x);
                 float xMax = Mathf.Max(dragStart.x, mousePosition.x);
                 float yMin = Mathf.Min(dragStart.y, mousePosition.y);
                 float yMax = Mathf.Max(dragStart.y, mousePosition.y);
                 BoxSelectionScreenRect = new Rect(xMin, yMin, xMax - xMin, yMax - yMin);
+                }
             }
         }
 
-        if (Input.GetMouseButtonUp(0))
+        if (CommanderSettings.PrimaryAction.IsUp())
         {
             if (isDragging)
             {
@@ -168,7 +162,7 @@ internal sealed class CommanderInputController
             return;
         }
 
-        bool additive = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+        bool additive = CommanderSettings.AddToSelection.IsPressed();
 
         if (markerService.TryGetMarkerUnitAt(mousePosition, out Unit markerUnit))
         {

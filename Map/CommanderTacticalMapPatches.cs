@@ -47,7 +47,7 @@ internal static class CommanderKeepTacticalMapOpenPatch
             return false;
         }
 
-        if (!Input.GetKeyDown(KeyCode.M))
+        if (!CommanderGameInput.MapDown)
         {
             return true;
         }

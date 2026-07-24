@@ -1,5 +1,6 @@
 using BepInEx.Configuration;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace NuclearOptionCommander;
 
@@ -10,9 +11,6 @@ internal static class CommanderSettings
 
     internal static float UiScale { get; set; } = 1.5f;
     internal static bool LimitVehiclesToOwnSide { get => Get("Gameplay", "LimitVehiclesToOwnSide", false); set => Set("Gameplay", "LimitVehiclesToOwnSide", value); }
-    internal static bool EnableMobileEmplacements { get => Get("Gameplay", "EnableMobileEmplacements", true); set => Set("Gameplay", "EnableMobileEmplacements", value); }
-    internal static bool EnableAirCommand { get => Get("Gameplay", "EnableAirCommand", true); set => Set("Gameplay", "EnableAirCommand", value); }
-
     internal static bool ShowCommandButton { get => Get("UI", "ShowCommandButton", true); set => Set("UI", "ShowCommandButton", value); }
     internal static bool ShowFactionMoney { get => Get("UI", "ShowFactionMoney", true); set => Set("UI", "ShowFactionMoney", value); }
     internal static bool ShowTacticalMap { get => Get("UI", "ShowTacticalMap", true); set => Set("UI", "ShowTacticalMap", value); }
@@ -28,11 +26,20 @@ internal static class CommanderSettings
     internal static float MoveSpacing { get => Get("Controls", "MoveSpacing", 50f); set => Set("Controls", "MoveSpacing", value); }
     internal static string MoveFormation { get => Get("Controls", "MoveFormation", "Circular"); set => Set("Controls", "MoveFormation", value); }
 
+    internal static KeyboardShortcut PrimaryAction { get => GetShortcut("PrimaryAction", KeyCode.Mouse0, "Select units and place world targets."); set => Set("Keybinds", "PrimaryAction", value); }
+    internal static KeyboardShortcut SecondaryAction { get => GetShortcut("SecondaryAction", KeyCode.Mouse1, "Issue move orders."); set => Set("Keybinds", "SecondaryAction", value); }
+    internal static KeyboardShortcut AddToSelection { get => GetShortcut("AddToSelection", KeyCode.LeftShift, "Hold while selecting to add units."); set => Set("Keybinds", "AddToSelection", value); }
+    internal static KeyboardShortcut RepeatDeployment { get => GetShortcut("RepeatDeployment", KeyCode.LeftShift, "Hold while placing a supply target to repeat the deployment."); set => Set("Keybinds", "RepeatDeployment", value); }
+    internal static KeyboardShortcut DeleteUnitModifier { get => GetShortcut("DeleteUnitModifier", KeyCode.LeftAlt, "Hold to turn PIN into DEL."); set => Set("Keybinds", "DeleteUnitModifier", value); }
+    internal static KeyboardShortcut CameraCenterFollow { get => GetShortcut("CameraCenterFollow", KeyCode.Space, "Tap to center; hold to center and follow."); set => Set("Keybinds", "CameraCenterFollow", value); }
+    internal static KeyboardShortcut ToggleUi { get => GetShortcut("ToggleUi", KeyCode.H, "Toggle Commander UI for screenshots."); set => Set("Keybinds", "ToggleUi", value); }
+
     internal static string AirCommandMode { get => Get("Air Command", "MissionMode", "AirGuard"); set => Set("Air Command", "MissionMode", value); }
     internal static string AirLoadoutBalance { get => Get("Air Command", "LoadoutBalance", "Primary"); set => Set("Air Command", "LoadoutBalance", value); }
     internal static float AirTargetAltitude { get => Get("Air Command", "TargetAltitude", 0f); set => Set("Air Command", "TargetAltitude", value); }
     internal static bool AirGuardTargetOrdnance { get => Get("Air Command", "AirGuardTargetOrdnance", false); set => Set("Air Command", "AirGuardTargetOrdnance", value); }
     internal static bool AradSaturationAttack { get => Get("Air Command", "AradSaturationAttack", false); set => Set("Air Command", "AradSaturationAttack", value); }
+    internal static bool AirIncludeInternalCannons { get => Get("Air Command", "IncludeInternalCannons", true); set => Set("Air Command", "IncludeInternalCannons", value); }
     internal static float AwacsRadiusKm { get => Get("Air Command", "AwacsRadiusKm", 60f); set => Set("Air Command", "AwacsRadiusKm", value); }
     internal static float CasRadiusKm { get => Get("Air Command", "CasRadiusKm", 20f); set => Set("Air Command", "CasRadiusKm", value); }
     internal static float AirGuardRadiusKm { get => Get("Air Command", "AirGuardRadiusKm", 30f); set => Set("Air Command", "AirGuardRadiusKm", value); }
@@ -44,12 +51,37 @@ internal static class CommanderSettings
         config = configFile;
         _ = LimitVehiclesToOwnSide;
         _ = ShowCommandButton;
+        _ = PrimaryAction;
+        _ = SecondaryAction;
+        _ = AddToSelection;
+        _ = RepeatDeployment;
+        _ = DeleteUnitModifier;
+        _ = CameraCenterFollow;
+        _ = ToggleUi;
         _ = AirCommandMode;
         _ = AwacsRadiusKm;
         _ = CasRadiusKm;
         _ = AirGuardRadiusKm;
         _ = AradRadiusKm;
         _ = StrikeRadiusKm;
+    }
+
+    private static KeyboardShortcut GetShortcut(string key, KeyCode defaultKey, string description)
+    {
+        if (config == null) return new KeyboardShortcut(defaultKey);
+        string lookup = "Keybinds/" + key;
+        if (entries.TryGetValue(lookup, out ConfigEntryBase existing))
+        {
+            return ((ConfigEntry<KeyboardShortcut>)existing).Value;
+        }
+
+        ConfigEntry<KeyboardShortcut> created = config.Bind(
+            "Keybinds",
+            key,
+            new KeyboardShortcut(defaultKey),
+            new ConfigDescription(description + " Set the main key to None to disable it."));
+        entries.Add(lookup, created);
+        return created.Value;
     }
 
     private static T Get<T>(string section, string key, T defaultValue)

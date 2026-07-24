@@ -41,12 +41,13 @@ internal sealed partial class CommanderSupplyHeliService
     private readonly List<AirbaseOption> airbaseOptions = new();
     private readonly Queue<QueuedCargoSpawn> queuedCargoSpawns = new();
     private readonly Dictionary<Aircraft, CargoMission> assignedMissions = new();
-    private readonly HashSet<Autopilot> highClearanceAutopilots = new();
+    private readonly Dictionary<Autopilot, float> terrainClearanceAutopilots = new();
     private PendingTargetSelection? pendingTargetSelection;
     private PendingAircraftSpawn? pendingAircraftSpawn;
     private Airbase? selectedAirbase;
     private int selectedAircraftIndex;
     private bool highTerrainClearance;
+    private float terrainClearanceMeters = 250f;
     private bool airdropDelivery;
     private bool includeEcm = true;
     private bool includeCountermeasures = true;
@@ -92,6 +93,12 @@ internal sealed partial class CommanderSupplyHeliService
     {
         get => highTerrainClearance;
         set => highTerrainClearance = value;
+    }
+
+    internal float TerrainClearanceMeters
+    {
+        get => terrainClearanceMeters;
+        set => terrainClearanceMeters = Mathf.Max(value, 0f);
     }
 
     internal bool AirdropDelivery
@@ -163,7 +170,7 @@ internal sealed partial class CommanderSupplyHeliService
 
     internal void TickActive()
     {
-        if (AwaitingTargetSelection && Input.GetKeyDown(KeyCode.Escape))
+        if (AwaitingTargetSelection && CommanderGameInput.CancelDown)
         {
             CancelTargetSelection(showStatus: true);
         }
@@ -201,7 +208,7 @@ internal sealed partial class CommanderSupplyHeliService
         aircraftOptions.Clear();
         airbaseOptions.Clear();
         assignedMissions.Clear();
-        highClearanceAutopilots.Clear();
+        terrainClearanceAutopilots.Clear();
         pendingTargetSelection = null;
         pendingAircraftSpawn = null;
         uiVisible = false;
@@ -462,6 +469,7 @@ internal sealed partial class CommanderSupplyHeliService
             cargoLabel,
             airbase!,
             highTerrainClearance,
+            terrainClearanceMeters,
             airdropDelivery,
             supportSummary,
             useOtherAirfields);
@@ -484,7 +492,7 @@ internal sealed partial class CommanderSupplyHeliService
         PendingTargetSelection selection = pendingTargetSelection;
         selection.Targets.Add(target);
 
-        bool repeatSelection = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+        bool repeatSelection = CommanderSettings.RepeatDeployment.IsPressed();
         if (!repeatSelection)
         {
             pendingTargetSelection = null;
@@ -495,6 +503,7 @@ internal sealed partial class CommanderSupplyHeliService
             selection.CargoLabel,
             selection.Airbase,
             selection.HighTerrainClearance,
+            selection.TerrainClearanceMeters,
             selection.Airdrop,
             selection.SupportSummary,
             selection.UseOtherAirfields,
@@ -555,9 +564,9 @@ internal sealed partial class CommanderSupplyHeliService
     {
         if (followTerrain
             && Instance != null
-            && Instance.highClearanceAutopilots.Contains(autopilot))
+            && Instance.terrainClearanceAutopilots.TryGetValue(autopilot, out float clearance))
         {
-            altitudeHold = Mathf.Max(altitudeHold, 250f);
+            altitudeHold = Mathf.Max(altitudeHold, clearance);
         }
     }
 

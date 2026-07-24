@@ -7,7 +7,6 @@ namespace NuclearOptionCommander;
 
 internal sealed class CommanderMobileEmplacementService
 {
-    private const float CommandTruckRange = 300f;
     private const float TractorRange = 300f;
     private const float ArrivalDistance = 12f;
     private const float StagingDistance = 18f;
@@ -23,6 +22,9 @@ internal sealed class CommanderMobileEmplacementService
     private float nextUpdateAt;
     private float statusUntil;
     private string statusText = string.Empty;
+    private GroundVehicle? availabilityTrailer;
+    private bool cachedHaulerAvailable;
+    private float nextAvailabilityCheckAt;
 
     private bool issuingInternalHaulerCommand;
 
@@ -54,11 +56,14 @@ internal sealed class CommanderMobileEmplacementService
         jobs.Clear();
         reservedHaulers.Clear();
         statusText = string.Empty;
+        availabilityTrailer = null;
+        cachedHaulerAvailable = false;
+        nextAvailabilityCheckAt = 0f;
     }
 
     internal void TickActive()
     {
-        if (AwaitingDestination && Input.GetKeyDown(KeyCode.Escape))
+        if (AwaitingDestination && CommanderGameInput.CancelDown)
         {
             pendingRelocation = null;
             SetStatus("Trailer relocation cancelled.");
@@ -91,8 +96,7 @@ internal sealed class CommanderMobileEmplacementService
 
     internal bool IsMoveableTrailer(Unit? unit)
     {
-        return CommanderSettings.EnableMobileEmplacements
-            && unit is GroundVehicle vehicle
+        return unit is GroundVehicle vehicle
             && CommanderGameAccess.IsFriendlyUnit(vehicle, CommanderGameAccess.GetLocalHq())
             && CommanderGameAccess.IsTrailerVehicleDefinition(vehicle.definition as VehicleDefinition);
     }
@@ -110,14 +114,26 @@ internal sealed class CommanderMobileEmplacementService
         return pendingRelocation != null && ReferenceEquals(pendingRelocation.Trailer, trailer);
     }
 
-    internal void BeginRelocation()
+    internal bool HasAvailableHauler(Unit? unit)
     {
-        if (!CommanderSettings.EnableMobileEmplacements)
+        if (unit is not GroundVehicle trailer || !IsMoveableTrailer(trailer))
         {
-            SetStatus("Mobile Emplacements is disabled in Commander settings.");
-            return;
+            return false;
         }
 
+        if (ReferenceEquals(availabilityTrailer, trailer) && Time.unscaledTime < nextAvailabilityCheckAt)
+        {
+            return cachedHaulerAvailable;
+        }
+
+        availabilityTrailer = trailer;
+        cachedHaulerAvailable = TryFindTractor(trailer, out _);
+        nextAvailabilityCheckAt = Time.unscaledTime + UpdateIntervalSeconds;
+        return cachedHaulerAvailable;
+    }
+
+    internal void BeginRelocation()
+    {
         if (NetworkManagerNuclearOption.i == null || !NetworkManagerNuclearOption.i.Server.Active)
         {
             SetStatus("Mobile emplacements are host-only.");
@@ -137,14 +153,15 @@ internal sealed class CommanderMobileEmplacementService
             return;
         }
 
-        if (!TryFindCommandTruckAndTractor(trailer, out GroundVehicle commandTruck, out GroundVehicle tractor))
+        if (!TryFindTractor(trailer, out GroundVehicle tractor))
         {
-            SetStatus("Requires a nearby fire-control truck and an idle HLT/MSV Tractor or Flatbed within 300 m.");
+            SetStatus("Requires an idle HLT/MSV Tractor or Flatbed within 300 m.");
             return;
         }
 
-        pendingRelocation = new PendingRelocation(trailer, commandTruck, tractor);
-        SetStatus("Click the new emplacement position in the 3D world. Esc cancels.");
+        pendingRelocation = new PendingRelocation(trailer, tractor);
+        availabilityTrailer = null;
+        SetStatus("Click the new emplacement position in the 3D world. The game's Cancel binding cancels.");
     }
 
     internal bool TrySetDestinationFromWorld(Vector2 screenPosition)
@@ -168,7 +185,7 @@ internal sealed class CommanderMobileEmplacementService
             return true;
         }
 
-        RelocationJob job = new(pending.Trailer, pending.CommandTruck, pending.Tractor, destination);
+        RelocationJob job = new(pending.Trailer, pending.Tractor, destination);
         jobs.Add(job);
         reservedHaulers.Add(pending.Tractor);
         CommanderGameAccess.SetUnitHoldPosition(pending.Tractor, hold: true);
@@ -261,39 +278,11 @@ internal sealed class CommanderMobileEmplacementService
         return false;
     }
 
-    private bool TryFindCommandTruckAndTractor(
-        GroundVehicle trailer,
-        out GroundVehicle commandTruck,
-        out GroundVehicle tractor)
+    private bool TryFindTractor(GroundVehicle trailer, out GroundVehicle tractor)
     {
-        commandTruck = null!;
         tractor = null!;
         FactionHQ? hq = CommanderGameAccess.GetLocalHq();
         if (hq?.factionUnits == null)
-        {
-            return false;
-        }
-
-        float commandDistance = float.MaxValue;
-        foreach (PersistentID unitId in hq.factionUnits)
-        {
-            if (!unitId.TryGetUnit(out Unit unit)
-                || unit is not GroundVehicle vehicle
-                || vehicle.disabled
-                || !IsCommandTruck(vehicle))
-            {
-                continue;
-            }
-
-            float distance = CommanderGameAccess.HorizontalDistance(vehicle.transform.position, trailer.transform.position);
-            if (distance <= CommandTruckRange && distance < commandDistance)
-            {
-                commandDistance = distance;
-                commandTruck = vehicle;
-            }
-        }
-
-        if (commandTruck == null)
         {
             return false;
         }
@@ -311,7 +300,7 @@ internal sealed class CommanderMobileEmplacementService
                 continue;
             }
 
-            float distance = CommanderGameAccess.HorizontalDistance(vehicle.transform.position, commandTruck.transform.position);
+            float distance = CommanderGameAccess.HorizontalDistance(vehicle.transform.position, trailer.transform.position);
             if (distance <= TractorRange && distance < tractorDistance)
             {
                 tractorDistance = distance;
@@ -320,15 +309,6 @@ internal sealed class CommanderMobileEmplacementService
         }
 
         return tractor != null;
-    }
-
-    private static bool IsCommandTruck(GroundVehicle vehicle)
-    {
-        string code = vehicle.definition?.code ?? string.Empty;
-        string name = vehicle.definition?.unitName ?? vehicle.unitName ?? string.Empty;
-        return string.Equals(code, "CMD", StringComparison.OrdinalIgnoreCase)
-            || name.IndexOf("Fire Control", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("Command", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private static bool IsHauler(GroundVehicle vehicle)
@@ -473,24 +453,21 @@ internal sealed class CommanderMobileEmplacementService
 
     private sealed class PendingRelocation
     {
-        internal PendingRelocation(GroundVehicle trailer, GroundVehicle commandTruck, GroundVehicle tractor)
+        internal PendingRelocation(GroundVehicle trailer, GroundVehicle tractor)
         {
             Trailer = trailer;
-            CommandTruck = commandTruck;
             Tractor = tractor;
         }
 
         internal GroundVehicle Trailer { get; }
-        internal GroundVehicle CommandTruck { get; }
         internal GroundVehicle Tractor { get; }
     }
 
     private sealed class RelocationJob
     {
-        internal RelocationJob(GroundVehicle trailer, GroundVehicle commandTruck, GroundVehicle tractor, GlobalPosition destination)
+        internal RelocationJob(GroundVehicle trailer, GroundVehicle tractor, GlobalPosition destination)
         {
             Trailer = trailer;
-            CommandTruck = commandTruck;
             Tractor = tractor;
             Destination = destination;
             LastTrailerPosition = trailer.GlobalPosition();
@@ -500,7 +477,7 @@ internal sealed class CommanderMobileEmplacementService
             UniqueName = trailer.UniqueName;
             Skill = trailer.skill;
 
-            Vector3 pickupDirection = commandTruck.transform.position - trailer.transform.position;
+            Vector3 pickupDirection = tractor.transform.position - trailer.transform.position;
             pickupDirection.y = 0f;
             if (pickupDirection.sqrMagnitude < 0.1f)
             {
@@ -519,7 +496,6 @@ internal sealed class CommanderMobileEmplacementService
         }
 
         internal GroundVehicle? Trailer { get; set; }
-        internal GroundVehicle CommandTruck { get; }
         internal GroundVehicle Tractor { get; }
         internal GlobalPosition Destination { get; }
         internal GlobalPosition PickupStagingPoint { get; }

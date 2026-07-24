@@ -200,14 +200,15 @@ internal sealed class CommanderCameraFollowService
 
     private void HandleSpaceShortcut()
     {
-        if (Input.GetKeyDown(KeyCode.Space))
+        var shortcut = CommanderSettings.CameraCenterFollow;
+        if (shortcut.IsDown())
         {
             spaceHeld = true;
             longSpaceTriggered = false;
             spacePressedAt = Time.unscaledTime;
         }
 
-        if (spaceHeld && !longSpaceTriggered && Input.GetKey(KeyCode.Space) && Time.unscaledTime - spacePressedAt >= 0.45f)
+        if (spaceHeld && !longSpaceTriggered && shortcut.IsPressed() && Time.unscaledTime - spacePressedAt >= 0.45f)
         {
             if (!Enabled)
             {
@@ -217,7 +218,7 @@ internal sealed class CommanderCameraFollowService
             longSpaceTriggered = true;
         }
 
-        if (spaceHeld && Input.GetKeyUp(KeyCode.Space))
+        if (spaceHeld && shortcut.IsUp())
         {
             if (!longSpaceTriggered)
             {
