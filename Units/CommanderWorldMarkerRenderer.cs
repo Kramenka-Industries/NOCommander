@@ -46,6 +46,11 @@ internal sealed class CommanderWorldMarkerRenderer
             DrawMarker(camera, rallyPoint, "RALLY", new Color(0.95f, 0.78f, 0.22f, 0.9f));
         }
 
+        if (supplyHeliService.AwaitingTargetSelection)
+        {
+            DrawCursorMarker("LZ", new Color(0.35f, 0.9f, 0.42f, 0.95f));
+        }
+
         if (!supplyWindowVisible)
         {
             return;
@@ -56,6 +61,17 @@ internal sealed class CommanderWorldMarkerRenderer
         {
             DrawMarker(camera, deliveryTargets[i], "LZ", new Color(0.35f, 0.9f, 0.42f, 0.9f));
         }
+    }
+
+    private static void DrawCursorMarker(string label, Color color)
+    {
+        Vector2 guiPoint = CommanderUiScale.ScreenToGui(Input.mousePosition);
+        Rect marker = new(guiPoint.x + 14f, guiPoint.y + 14f, 60f, 26f);
+        Color previous = GUI.color;
+        GUI.color = color;
+        GUI.Box(marker, label, CommanderUiTheme.Panel);
+        CommanderUiTheme.DrawFrame(marker, 1f);
+        GUI.color = previous;
     }
 
     private static void DrawMarker(Camera camera, GlobalPosition position, string label, Color color)

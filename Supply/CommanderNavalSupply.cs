@@ -81,6 +81,7 @@ internal sealed partial class CommanderSupplyHeliService
             "Naval supplies",
             ship.GlobalPosition(),
             false,
+            0f,
             true,
             "Basegame naval supply",
             purchased,

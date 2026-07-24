@@ -14,6 +14,7 @@ internal sealed class CommanderSupplyHeliUi
     private Vector2 dropdownScroll;
     private bool positionInitialized;
     private bool helpVisible;
+    private bool terrainClearanceDropdownOpen;
     private int step;
     private int openCargoSlot = -1;
 
@@ -37,12 +38,14 @@ internal sealed class CommanderSupplyHeliUi
         if (!Visible)
         {
             openCargoSlot = -1;
+            terrainClearanceDropdownOpen = false;
             return;
         }
 
         step = 0;
         helpVisible = false;
         openCargoSlot = -1;
+        terrainClearanceDropdownOpen = false;
         service.RefreshOptions();
     }
 
@@ -299,12 +302,28 @@ internal sealed class CommanderSupplyHeliUi
         }
         GUI.enabled = oldEnabled;
 
-        service.HighTerrainClearance = GUI.Toggle(new Rect(missionPanel.x + 12f, missionPanel.y + 166f, missionPanel.width - 24f, 42f),
-            service.HighTerrainClearance, "Safe flight\n250 m terrain clearance", CommanderUiTheme.Toggle);
+        service.HighTerrainClearance = GUI.Toggle(
+            new Rect(missionPanel.x + 12f, missionPanel.y + 166f, missionPanel.width - 24f, 28f),
+            service.HighTerrainClearance,
+            "TERRAIN CLEARANCE",
+            CommanderUiTheme.Toggle);
 
-        GUI.Label(new Rect(missionPanel.x + 12f, missionPanel.y + 222f, missionPanel.width - 24f, 100f),
+        GUI.enabled = oldEnabled && service.HighTerrainClearance;
+        string clearanceLabel = service.TerrainClearanceMeters <= 0f
+            ? "STANDARD   v"
+            : $"{service.TerrainClearanceMeters:0} m   v";
+        if (GUI.Button(
+            new Rect(missionPanel.x + 12f, missionPanel.y + 198f, missionPanel.width - 24f, 30f),
+            clearanceLabel,
+            terrainClearanceDropdownOpen ? CommanderUiTheme.SelectedButton : CommanderUiTheme.Button))
+        {
+            terrainClearanceDropdownOpen = !terrainClearanceDropdownOpen;
+        }
+        GUI.enabled = oldEnabled;
+
+        GUI.Label(new Rect(missionPanel.x + 12f, missionPanel.y + 240f, missionPanel.width - 24f, 100f),
             "After confirming, click the destination in the 3D world. A busy locked airfield keeps the mission queued until a compatible hangar is free.", CommanderUiTheme.MutedLabel);
-        GUI.Label(new Rect(missionPanel.x + 12f, missionPanel.y + 322f, missionPanel.width - 24f, 24f),
+        GUI.Label(new Rect(missionPanel.x + 12f, missionPanel.y + 340f, missionPanel.width - 24f, 24f),
             $"Queued supply runs: {service.QueuedSpawnCount}", CommanderUiTheme.Label);
 
         if (GUI.Button(new Rect(missionPanel.xMax - 112f, missionPanel.yMax - 42f, 100f, 26f),
@@ -316,6 +335,40 @@ internal sealed class CommanderSupplyHeliUi
         if (airbases.Count == 0)
         {
             GUI.Label(view, "No friendly airfield supports this aircraft.", CommanderUiTheme.Label);
+        }
+
+        DrawTerrainClearanceDropdown(missionPanel);
+    }
+
+    private void DrawTerrainClearanceDropdown(Rect missionPanel)
+    {
+        if (!terrainClearanceDropdownOpen || !service.HighTerrainClearance)
+        {
+            return;
+        }
+
+        float[] clearances = { 0f, 20f, 35f, 50f, 75f, 100f, 150f, 200f, 250f };
+        float rowHeight = 30f;
+        Rect popup = new(
+            missionPanel.x + 30f,
+            missionPanel.y + 230f,
+            missionPanel.width - 60f,
+            clearances.Length * rowHeight + 8f);
+        GUI.Box(popup, string.Empty, CommanderUiTheme.Window);
+        for (int i = 0; i < clearances.Length; i++)
+        {
+            float value = clearances[i];
+            string label = value <= 0f ? "STANDARD" : $"{value:0} m";
+            if (GUI.Button(
+                new Rect(popup.x + 4f, popup.y + 4f + i * rowHeight, popup.width - 8f, rowHeight - 2f),
+                label,
+                Mathf.Approximately(service.TerrainClearanceMeters, value)
+                    ? CommanderUiTheme.SelectedButton
+                    : CommanderUiTheme.Button))
+            {
+                service.TerrainClearanceMeters = value;
+                terrainClearanceDropdownOpen = false;
+            }
         }
     }
 
@@ -412,7 +465,7 @@ internal sealed class CommanderSupplyHeliUi
         {
             0 => "Choose any helicopter or aircraft exposing Basegame cargo hardpoints. Cards show faction availability or purchase cost. Selecting an aircraft advances to its loadout.",
             1 => "Combined bays exclude conflicting forward/rear bays. [Airdrop] marks cargo with a Basegame parachute. ECM, countermeasures and Fill Rest use compatible remaining hardpoints. BACK cancels the current deployment setup.",
-            _ => "READY has a free compatible hangar; WAIT queues the run. Other Airfields allows fallback instead of waiting at the selected base. Safe Flight adds terrain clearance. Select a target in 3D; hold Shift while clicking to repeat the configured mission. SHOW LZ controls only its marker."
+            _ => "READY has a free compatible hangar; WAIT queues the run. Other Airfields allows fallback instead of waiting at the selected base. Terrain Clearance raises Basegame terrain-follow altitude to the selected minimum. Select a target in 3D; hold Shift while clicking to repeat the configured mission. SHOW LZ controls only its marker."
         };
     }
 

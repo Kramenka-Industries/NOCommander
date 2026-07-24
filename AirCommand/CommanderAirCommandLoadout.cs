@@ -154,14 +154,14 @@ internal sealed partial class CommanderAirCommandService
         }
         if (primary == null)
         {
-            EnsureMedusaLaser(option);
+            EnsureFixedEquipment(option);
             return;
         }
 
         if (secondary == null)
         {
             SelectGroups(option, primary, FindMaximumWeaponGroups(option, primary, Array.Empty<int>()));
-            EnsureMedusaLaser(option);
+            EnsureFixedEquipment(option);
             return;
         }
 
@@ -170,7 +170,7 @@ internal sealed partial class CommanderAirCommandService
             List<int> primaryGroups = FindMaximumWeaponGroups(option, primary, Array.Empty<int>());
             SelectGroups(option, primary, primaryGroups);
             SelectGroups(option, secondary, FindMaximumWeaponGroups(option, secondary, primaryGroups));
-            EnsureMedusaLaser(option);
+            EnsureFixedEquipment(option);
             return;
         }
 
@@ -183,7 +183,7 @@ internal sealed partial class CommanderAirCommandService
             List<int> primaryGroups = FindMaximumWeaponGroups(option, primary, Array.Empty<int>());
             SelectGroups(option, primary, primaryGroups);
             SelectGroups(option, secondary, FindMaximumWeaponGroups(option, secondary, primaryGroups));
-            EnsureMedusaLaser(option);
+            EnsureFixedEquipment(option);
             return;
         }
         for (int i = 0; i < allocation.Length; i++)
@@ -191,7 +191,66 @@ internal sealed partial class CommanderAirCommandService
             if (allocation[i] == 1) SelectEquivalentMount(option.HardpointGroups[i], primary);
             else if (allocation[i] == 2) SelectEquivalentMount(option.HardpointGroups[i], secondary);
         }
+        EnsureFixedEquipment(option);
+    }
+
+    private static void EnsureFixedEquipment(AirMissionOption option)
+    {
         EnsureMedusaLaser(option);
+        if (CommanderSettings.AirIncludeInternalCannons)
+        {
+            EnsureInternalCannons(option);
+        }
+    }
+
+    private static void EnsureInternalCannons(AirMissionOption option)
+    {
+        for (int groupIndex = 0; groupIndex < option.HardpointGroups.Count; groupIndex++)
+        {
+            AirHardpointGroup group = option.HardpointGroups[groupIndex];
+            if (group.SelectedMount != null)
+            {
+                continue;
+            }
+
+            bool conflictsWithOtherGroup = false;
+            for (int otherIndex = 0; otherIndex < option.HardpointGroups.Count; otherIndex++)
+            {
+                if (otherIndex != groupIndex
+                    && GroupsConflict(option.HardpointSets, group, option.HardpointGroups[otherIndex]))
+                {
+                    conflictsWithOtherGroup = true;
+                    break;
+                }
+            }
+            if (conflictsWithOtherGroup)
+            {
+                continue;
+            }
+
+            for (int mountIndex = 0; mountIndex < group.Mounts.Count; mountIndex++)
+            {
+                WeaponMount mount = group.Mounts[mountIndex];
+                if (mount.info?.gun != true)
+                {
+                    continue;
+                }
+                bool dedicatedGunGroup = group.Mounts.Count > 0;
+                for (int candidateIndex = 0; candidateIndex < group.Mounts.Count; candidateIndex++)
+                {
+                    if (group.Mounts[candidateIndex].info?.gun != true)
+                    {
+                        dedicatedGunGroup = false;
+                        break;
+                    }
+                }
+                if (dedicatedGunGroup)
+                {
+                    group.Select(mountIndex);
+                    break;
+                }
+            }
+        }
     }
 
     private static void EnsureMedusaLaser(AirMissionOption option)

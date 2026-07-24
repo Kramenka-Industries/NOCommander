@@ -270,7 +270,7 @@ internal sealed class CommanderAirCommandUi
 
         GUI.Label(new Rect(12f, y, windowRect.width - 24f, 24f), "MISSION LOADOUT", CommanderUiTheme.MutedLabel);
         y += 24f;
-        float loadoutHeight = 174f;
+        float loadoutHeight = 208f;
         Rect loadoutPanel = new(12f, y, windowRect.width - 24f, loadoutHeight);
         GUI.Box(loadoutPanel, string.Empty, CommanderUiTheme.Panel);
         GUI.enabled = oldEnabled && !dropdownOpen && !service.AwaitingAreaSelection;
@@ -334,7 +334,7 @@ internal sealed class CommanderAirCommandUi
         y += 42f;
 
         string status = service.AwaitingAreaSelection
-            ? "Click the tactical map or 3D terrain. Esc cancels."
+            ? "Click the tactical map or 3D terrain. The game's Cancel binding cancels."
             : service.StatusText;
         GUI.Label(new Rect(12f, y, windowRect.width - 24f, 42f),
             $"ACTIVE {service.ActiveMissionCount}  |  {status}", CommanderUiTheme.MutedLabel);
@@ -389,6 +389,16 @@ internal sealed class CommanderAirCommandUi
         GUI.enabled = oldEnabled;
         GUI.Label(new Rect(panel.x + 12f, panel.y + 136f, panel.width - 24f, 28f),
             "Balance controls automatic station allocation. Mirrored hardpoints and bay conflicts are applied automatically.", CommanderUiTheme.MutedLabel);
+        Rect cannonToggle = new(panel.x + 12f, panel.y + 168f, panel.width - 24f, 30f);
+        service.IncludeInternalCannons = GUI.Toggle(
+            cannonToggle,
+            service.IncludeInternalCannons,
+            "INTERNAL CANNONS",
+            CommanderUiTheme.Toggle);
+        if (cannonToggle.Contains(Event.current.mousePosition))
+        {
+            hoverTooltip = "Equips built-in cannons when available. Aircraft may not automatically RTB after missiles and bombs are depleted while cannon ammunition remains.";
+        }
     }
 
     private void DrawBalanceButton(CommanderAirCommandService.LoadoutBalance balance, string label, float x, float y, float width)

@@ -168,7 +168,7 @@ internal sealed class CommanderTacticalMapService
 
     internal void Tick()
     {
-        if (restoreTacticalAfterFullscreen && IsFullscreenOpen && Input.GetKeyDown(KeyCode.Escape))
+        if (restoreTacticalAfterFullscreen && IsFullscreenOpen && CommanderGameInput.CancelDown)
         {
             suppressExtraUiFrame = Time.frameCount;
             RestoreTacticalMap();

@@ -17,6 +17,7 @@ internal sealed class CommanderOverlayUi
     private readonly CommanderSpawnService spawnService;
     private readonly CommanderRadarService radarService;
     private readonly CommanderMobileEmplacementService mobileEmplacementService;
+    private readonly CommanderRepairService repairService;
     private readonly CommanderDirectPathService directPathService;
     private readonly CommanderSupplyHeliService supplyHeliService;
     private readonly CommanderAirCommandService airCommandService;
@@ -74,6 +75,7 @@ internal sealed class CommanderOverlayUi
         CommanderSpawnService spawnService,
         CommanderRadarService radarService,
         CommanderMobileEmplacementService mobileEmplacementService,
+        CommanderRepairService repairService,
         CommanderDirectPathService directPathService,
         CommanderSupplyHeliService supplyHeliService,
         CommanderAirCommandService airCommandService,
@@ -84,6 +86,7 @@ internal sealed class CommanderOverlayUi
         this.spawnService = spawnService;
         this.radarService = radarService;
         this.mobileEmplacementService = mobileEmplacementService;
+        this.repairService = repairService;
         this.directPathService = directPathService;
         this.supplyHeliService = supplyHeliService;
         this.airCommandService = airCommandService;
@@ -215,9 +218,13 @@ internal sealed class CommanderOverlayUi
         CommanderUiTheme.Ensure();
         float centerY = CommanderUiScale.Height * 0.5f;
         launcherRect = new Rect(10f, centerY - 42f, 52f, 84f);
-        if (GUI.Button(launcherRect, "CMD", CommanderUiTheme.PrimaryButton))
+        EventType activationEvent = Event.current.type;
+        if (GUI.Button(launcherRect, "CMD", CommanderUiTheme.PrimaryButton)
+            && activationEvent == EventType.MouseUp)
         {
+            GUI.FocusControl(null);
             activateCommander();
+            panelVisible = true;
         }
     }
 
@@ -324,8 +331,6 @@ internal sealed class CommanderOverlayUi
             supplyHeliUi.Toggle();
         }
         y += 46f;
-        bool oldAirEnabled = GUI.enabled;
-        GUI.enabled = oldAirEnabled && CommanderSettings.EnableAirCommand;
         if (GUI.Button(new Rect(12f, y, panelRect.width - 24f, 38f), "AIR COMMAND", CommanderUiTheme.PrimaryButton))
         {
             if (airCommandUi.Visible)
@@ -341,7 +346,6 @@ internal sealed class CommanderOverlayUi
                 airCommandUi.Show();
             }
         }
-        GUI.enabled = oldAirEnabled;
         y += 46f;
         if (GUI.Button(new Rect(12f, y, panelRect.width - 24f, 38f), "FACTION RESERVE", CommanderUiTheme.Button))
         {
@@ -350,11 +354,11 @@ internal sealed class CommanderOverlayUi
         y += 48f;
 
         string helper = supplyHeliService.AwaitingTargetSelection
-            ? "Select the cargo destination in the 3D world. Esc cancels."
+            ? "Select the cargo destination in the 3D world. The game's Cancel binding cancels."
             : airCommandService.AwaitingAreaSelection
                 ? "Select the Air Command mission area on the tactical map or in the 3D world."
                 : mobileEmplacementService.AwaitingDestination
-                    ? "Select the trailer destination in the 3D world. Esc cancels."
+                    ? "Select the trailer destination in the 3D world. The game's Cancel binding cancels."
             : spawnService.AwaitingRallyPointSelection
                 ? "Select the rally point on the tactical map or in the 3D world."
                 : "Ready";
@@ -386,14 +390,6 @@ internal sealed class CommanderOverlayUi
                     new Rect(20f, settingsY + 78f, panelRect.width - 40f, 26f),
                     CommanderSettings.LimitVehiclesToOwnSide,
                     "Limit vehicles to own side (aircraft ignored)", CommanderUiTheme.Toggle);
-                CommanderSettings.EnableMobileEmplacements = GUI.Toggle(
-                    new Rect(20f, settingsY + 108f, panelRect.width - 40f, 26f),
-                    CommanderSettings.EnableMobileEmplacements,
-                    "Enable Mobile Emplacements (experimental)", CommanderUiTheme.Toggle);
-                CommanderSettings.EnableAirCommand = GUI.Toggle(
-                    new Rect(20f, settingsY + 138f, panelRect.width - 40f, 26f),
-                    CommanderSettings.EnableAirCommand,
-                    "Enable Air Command (experimental)", CommanderUiTheme.Toggle);
             }
             else
             {
@@ -423,7 +419,9 @@ internal sealed class CommanderOverlayUi
                 GUI.Label(new Rect(20f, settingsY + 220f, panelRect.width - 40f, 20f),
                     $"UI scale is automatic for {Screen.width} x {Screen.height}: {CommanderSettings.UiScale:0.##}x",
                     CommanderUiTheme.MutedLabel);
-                GUI.Label(new Rect(20f, settingsY + 246f, panelRect.width - 40f, 20f), "H toggles the complete UI for screenshots.", CommanderUiTheme.MutedLabel);
+                GUI.Label(new Rect(20f, settingsY + 246f, panelRect.width - 40f, 20f),
+                    $"{CommanderSettings.ToggleUi} toggles the complete UI. Keybinds: F1 Config Manager.",
+                    CommanderUiTheme.MutedLabel);
                 if (GUI.Button(new Rect(20f, settingsY + 272f, panelRect.width - 40f, 30f), "RESET UI LAYOUT", CommanderUiTheme.Button))
                 {
                     ResetUiLayout();
@@ -433,6 +431,7 @@ internal sealed class CommanderOverlayUi
 
         if (GUI.Button(new Rect(12f, panelRect.height - 54f, panelRect.width - 24f, 38f), "EXIT COMMANDER MODE", CommanderUiTheme.DangerButton))
         {
+            GUI.FocusControl(null);
             exitCommander();
         }
 
@@ -517,7 +516,7 @@ internal sealed class CommanderOverlayUi
             directPathService.ToggleFocusedUnit();
         }
         GUI.enabled = oldEnabled;
-        bool deleteMode = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
+        bool deleteMode = CommanderSettings.DeleteUnitModifier.IsPressed();
         string pinLabel = deleteMode ? "DEL" : (selectionService.IsCurrentSelectionPinned ? "UNPIN" : "PIN");
         GUI.enabled = oldEnabled && (!deleteMode || selectionService.CanDeleteSelection);
         if (GUI.Button(new Rect(buttonX + 244f, selectionBarRect.y + 32f, 82f, 34f), pinLabel,
@@ -644,7 +643,9 @@ internal sealed class CommanderOverlayUi
                 state?.IsCommandTruck == true
                     ? "Counts cover the fire-control network around this command truck. Radar controls affect only the selected unit's local emitter. Enemy-unit controls are disabled."
                     : mobileEmplacementService.IsMoveableTrailer(focusedUnit)
-                        ? "Relocate this static trailer through a nearby fire-control truck and an idle HLT/MSV Tractor or Flatbed. The hauler is reserved during loading, travel and deployment."
+                        ? "Relocate this static trailer with an idle HLT/MSV Tractor or Flatbed within 300 m. The hauler is reserved during loading, travel and deployment."
+                    : repairService.IsRepairUnit(focusedUnit)
+                        ? "Basegame repair targeting weighs damage, structure value and distance. NEAREST REPAIR instead targets the closest damaged friendly repairable structure on each Basegame repair scan."
                     : focusedUnit is Ship
                         ? "Request a paid Basegame UH-90K naval-supply run for this ship. Purchased airframes are refunded after a successful return. Enemy ships cannot request supply."
                     : "Switch the selected unit's local radar emissions. Aircraft use the Basegame networked radar toggle; enemy-unit controls are disabled.");
@@ -677,6 +678,23 @@ internal sealed class CommanderOverlayUi
             y += 42f;
         }
 
+        if (repairService.IsRepairUnit(focusedUnit))
+        {
+            GUI.enabled = oldEnabled && friendly;
+            bool nearest = repairService.UsesNearestTarget(focusedUnit);
+            if (GUI.Button(
+                new Rect(12f, y, radarWindowRect.width - 24f, 36f),
+                nearest ? "REPAIR: NEAREST" : "REPAIR: PRIORITY",
+                nearest ? CommanderUiTheme.SelectedButton : CommanderUiTheme.Button))
+            {
+                repairService.ToggleNearestTarget(focusedUnit);
+            }
+            GUI.enabled = oldEnabled;
+            y += 40f;
+            GUI.Label(new Rect(12f, y, radarWindowRect.width - 24f, 38f), repairService.StatusText, CommanderUiTheme.MutedLabel);
+            y += 42f;
+        }
+
         if (focusedUnit is Ship ship)
         {
             GUI.enabled = oldEnabled && friendly;
@@ -691,9 +709,13 @@ internal sealed class CommanderOverlayUi
         }
         else if (mobileEmplacementService.IsMoveableTrailer(focusedUnit))
         {
-            GUI.enabled = oldEnabled && friendly && !mobileEmplacementService.IsRelocating(focusedUnit);
-            if (GUI.Button(new Rect(12f, y, radarWindowRect.width - 24f, 36f),
-                mobileEmplacementService.IsRelocating(focusedUnit) ? "RELOCATION ACTIVE" : "RELOCATE TRAILER",
+            const string relocationRequirement = "Idle Tractor or Flatbed required within 300 m.";
+            bool relocating = mobileEmplacementService.IsRelocating(focusedUnit);
+            bool haulerAvailable = mobileEmplacementService.HasAvailableHauler(focusedUnit);
+            Rect relocateButtonRect = new(12f, y, radarWindowRect.width - 24f, 36f);
+            GUI.enabled = oldEnabled && friendly && !relocating && haulerAvailable;
+            if (GUI.Button(relocateButtonRect,
+                new GUIContent(relocating ? "RELOCATION ACTIVE" : "RELOCATE TRAILER", relocationRequirement),
                 CommanderUiTheme.PrimaryButton))
             {
                 mobileEmplacementService.BeginRelocation();
@@ -701,6 +723,13 @@ internal sealed class CommanderOverlayUi
             GUI.enabled = oldEnabled;
             y += 42f;
             GUI.Label(new Rect(12f, y, radarWindowRect.width - 24f, 42f), mobileEmplacementService.StatusText, CommanderUiTheme.MutedLabel);
+            if (relocateButtonRect.Contains(Event.current.mousePosition))
+            {
+                Rect tooltipRect = new(12f, Mathf.Max(34f, relocateButtonRect.y - 48f), radarWindowRect.width - 24f, 42f);
+                GUI.Box(tooltipRect, string.Empty, CommanderUiTheme.Panel);
+                GUI.Label(new Rect(tooltipRect.x + 8f, tooltipRect.y + 5f, tooltipRect.width - 16f, tooltipRect.height - 10f),
+                    relocationRequirement, CommanderUiTheme.Label);
+            }
         }
         GUI.DragWindow(new Rect(0f, 0f, radarWindowRect.width - 44f, 28f));
     }
@@ -722,6 +751,7 @@ internal sealed class CommanderOverlayUi
 
         return state != null
             || unit is Ship
+            || repairService.IsRepairUnit(unit)
             || mobileEmplacementService.IsMoveableTrailer(unit);
     }
 

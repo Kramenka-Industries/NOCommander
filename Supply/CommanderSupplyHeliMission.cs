@@ -14,6 +14,7 @@ internal sealed partial class CommanderSupplyHeliService
         string cargoLabel,
         Airbase airbase,
         bool useHighTerrainClearance,
+        float terrainClearanceMeters,
         bool useAirdrop,
         string supportSummary,
         bool useOtherAirfields,
@@ -37,6 +38,7 @@ internal sealed partial class CommanderSupplyHeliService
             cargoLabel,
             airbase,
             useHighTerrainClearance,
+            terrainClearanceMeters,
             useAirdrop,
             supportSummary,
             useOtherAirfields,
@@ -60,6 +62,7 @@ internal sealed partial class CommanderSupplyHeliService
         string cargoLabel,
         Airbase airbase,
         bool useHighTerrainClearance,
+        float terrainClearanceMeters,
         bool useAirdrop,
         string supportSummary,
         bool useOtherAirfields,
@@ -71,6 +74,7 @@ internal sealed partial class CommanderSupplyHeliService
             cargoLabel,
             airbase,
             useHighTerrainClearance,
+            terrainClearanceMeters,
             useAirdrop,
             supportSummary,
             useOtherAirfields,
@@ -168,6 +172,7 @@ internal sealed partial class CommanderSupplyHeliService
             request.CargoLabel,
             request.Target,
             request.HighTerrainClearance,
+            request.TerrainClearanceMeters,
             request.Airdrop,
             request.SupportSummary,
             purchased,
@@ -219,6 +224,7 @@ internal sealed partial class CommanderSupplyHeliService
             pending.Target,
             pending.CargoLabel,
             pending.HighTerrainClearance,
+            pending.TerrainClearanceMeters,
             pending.Airdrop,
             pending.PurchasedWithFunds,
             pending.PurchaseCost,
@@ -233,7 +239,7 @@ internal sealed partial class CommanderSupplyHeliService
         CommanderSelectionService.PinMissionUnit(aircraft, "SUPPLY", missionLabel);
         if (pending.HighTerrainClearance && aircraft.autopilot != null)
         {
-            highClearanceAutopilots.Add(aircraft.autopilot);
+            terrainClearanceAutopilots[aircraft.autopilot] = pending.TerrainClearanceMeters;
         }
         pendingAircraftSpawn = null;
     }
@@ -608,7 +614,7 @@ internal sealed partial class CommanderSupplyHeliService
 
             if (aircraft.autopilot != null)
             {
-                highClearanceAutopilots.Remove(aircraft.autopilot);
+                terrainClearanceAutopilots.Remove(aircraft.autopilot);
             }
 
             assignedMissions.Remove(aircraft);
@@ -710,6 +716,7 @@ internal sealed partial class CommanderSupplyHeliService
             string cargoLabel,
             Airbase airbase,
             bool highTerrainClearance,
+            float terrainClearanceMeters,
             bool airdrop,
             string supportSummary,
             bool useOtherAirfields)
@@ -719,6 +726,7 @@ internal sealed partial class CommanderSupplyHeliService
             CargoLabel = cargoLabel;
             Airbase = airbase;
             HighTerrainClearance = highTerrainClearance;
+            TerrainClearanceMeters = terrainClearanceMeters;
             Airdrop = airdrop;
             SupportSummary = supportSummary;
             UseOtherAirfields = useOtherAirfields;
@@ -729,6 +737,7 @@ internal sealed partial class CommanderSupplyHeliService
         internal string CargoLabel { get; }
         internal Airbase Airbase { get; }
         internal bool HighTerrainClearance { get; }
+        internal float TerrainClearanceMeters { get; }
         internal bool Airdrop { get; }
         internal string SupportSummary { get; }
         internal bool UseOtherAirfields { get; }
@@ -737,7 +746,7 @@ internal sealed partial class CommanderSupplyHeliService
         internal string GetTargetPrompt()
         {
             string targetType = Airdrop ? "airdrop point" : "landing point";
-            return $"Click a {targetType} in the 3D world. Esc cancels.";
+            return $"Click a {targetType} in the 3D world. The game's Cancel binding cancels.";
         }
     }
 
@@ -749,6 +758,7 @@ internal sealed partial class CommanderSupplyHeliService
             string cargoLabel,
             Airbase requestedAirbase,
             bool highTerrainClearance,
+            float terrainClearanceMeters,
             bool airdrop,
             string supportSummary,
             bool useOtherAirfields,
@@ -759,6 +769,7 @@ internal sealed partial class CommanderSupplyHeliService
             CargoLabel = cargoLabel;
             RequestedAirbase = requestedAirbase;
             HighTerrainClearance = highTerrainClearance;
+            TerrainClearanceMeters = terrainClearanceMeters;
             Airdrop = airdrop;
             SupportSummary = supportSummary;
             UseOtherAirfields = useOtherAirfields;
@@ -770,6 +781,7 @@ internal sealed partial class CommanderSupplyHeliService
         internal string CargoLabel { get; }
         internal Airbase RequestedAirbase { get; }
         internal bool HighTerrainClearance { get; }
+        internal float TerrainClearanceMeters { get; }
         internal bool Airdrop { get; }
         internal string SupportSummary { get; }
         internal bool UseOtherAirfields { get; }
@@ -785,6 +797,7 @@ internal sealed partial class CommanderSupplyHeliService
             string cargoLabel,
             GlobalPosition target,
             bool highTerrainClearance,
+            float terrainClearanceMeters,
             bool airdrop,
             string supportSummary,
             bool purchasedWithFunds,
@@ -798,6 +811,7 @@ internal sealed partial class CommanderSupplyHeliService
             CargoLabel = cargoLabel;
             Target = target;
             HighTerrainClearance = highTerrainClearance;
+            TerrainClearanceMeters = terrainClearanceMeters;
             Airdrop = airdrop;
             SupportSummary = supportSummary;
             PurchasedWithFunds = purchasedWithFunds;
@@ -812,6 +826,7 @@ internal sealed partial class CommanderSupplyHeliService
         internal string CargoLabel { get; }
         internal GlobalPosition Target { get; }
         internal bool HighTerrainClearance { get; }
+        internal float TerrainClearanceMeters { get; }
         internal bool Airdrop { get; }
         internal string SupportSummary { get; }
         internal bool PurchasedWithFunds { get; }
@@ -828,6 +843,7 @@ internal sealed partial class CommanderSupplyHeliService
             GlobalPosition target,
             string cargoLabel,
             bool highTerrainClearance,
+            float terrainClearanceMeters,
             bool airdrop,
             bool purchasedWithFunds,
             float purchaseCost,
@@ -839,6 +855,7 @@ internal sealed partial class CommanderSupplyHeliService
             DeliveryTargets = new List<GlobalPosition>(deliveryTargets);
             CargoLabel = cargoLabel;
             HighTerrainClearance = highTerrainClearance;
+            TerrainClearanceMeters = terrainClearanceMeters;
             Airdrop = airdrop;
             PurchasedWithFunds = purchasedWithFunds;
             PurchaseCost = purchaseCost;
@@ -851,6 +868,7 @@ internal sealed partial class CommanderSupplyHeliService
         internal List<GlobalPosition> DeliveryTargets { get; }
         internal string CargoLabel { get; }
         internal bool HighTerrainClearance { get; }
+        internal float TerrainClearanceMeters { get; }
         internal bool Airdrop { get; }
         internal bool PurchasedWithFunds { get; }
         internal float PurchaseCost { get; }

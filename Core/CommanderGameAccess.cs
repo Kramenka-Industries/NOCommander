@@ -589,6 +589,11 @@ internal static class CommanderGameAccess
             return "Other";
         }
 
+        if (IsUncrewedGroundVehicleDefinition(definition))
+        {
+            return "UGV";
+        }
+
         if (IsTrailerVehicleDefinition(definition))
         {
             return "Trailer";
@@ -614,7 +619,14 @@ internal static class CommanderGameAccess
     {
         return definition != null
             && definition.manpower == 0
-            && !string.Equals(definition.code, "UGV", System.StringComparison.OrdinalIgnoreCase);
+            && !IsUncrewedGroundVehicleDefinition(definition);
+    }
+
+    private static bool IsUncrewedGroundVehicleDefinition(VehicleDefinition definition)
+    {
+        return definition.vehicleType == VehicleType.UGV
+            || (!string.IsNullOrWhiteSpace(definition.code)
+                && definition.code.StartsWith("UGV", System.StringComparison.OrdinalIgnoreCase));
     }
 
     internal static void RaiseFollowingUnitSet(Unit? unit)
