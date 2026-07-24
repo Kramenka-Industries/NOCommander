@@ -34,18 +34,30 @@ internal sealed class CommanderDirectPathService
 
     internal void ToggleFocusedUnit()
     {
-        if (!CanConfigure(selectionService.FocusedSelection)
-            || selectionService.FocusedSelection is not GroundVehicle vehicle)
+        if (selectionService.SelectedUnits.Count == 0)
         {
             return;
         }
 
-        if (!directRouteVehicles.Remove(vehicle))
+        for (int i = 0; i < selectionService.SelectedUnits.Count; i++)
         {
-            directRouteVehicles.Add(vehicle);
-        }
+            Unit unit = selectionService.SelectedUnits[i];
 
-        ReapplyCurrentDestination(vehicle);
+            if (!CanConfigure(unit)
+                || unit is not GroundVehicle vehicle)
+            {
+                continue;
+            }
+
+            GroundVehicle gveh = (GroundVehicle)unit;
+
+            if (!directRouteVehicles.Remove(gveh))
+            {
+                directRouteVehicles.Add(gveh);
+            }
+
+            ReapplyCurrentDestination(gveh);
+        }
     }
 
     internal void ResetSession()

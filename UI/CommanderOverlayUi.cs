@@ -503,8 +503,7 @@ internal sealed class CommanderOverlayUi
             moveService.ResumeAiForSelectedUnits();
         }
         GUI.enabled = oldEnabled;
-        bool canToggleRoad = count == 1
-            && focused != null
+        bool canToggleRoad = focused != null // count == 1
             && directPathService.CanConfigure(focused)
             && !CommanderMobileEmplacementService.IsReservedHauler(focused);
         bool roadEnabled = !directPathService.IsEnabled(focused);
