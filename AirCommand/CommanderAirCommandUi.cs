@@ -160,7 +160,7 @@ internal sealed class CommanderAirCommandUi
         {
             CommanderUiTheme.DrawHelpOverlay(
                 new Rect(12f, y, windowRect.width - 24f, 86f),
-                "Select a mission, loadout and airbase, then place its area on the fullscreen map. PRIMARY FIRST fills compatible stations before using the secondary weapon; MIX reserves roughly 25% for secondary. Hover a mission for role details. Active aircraft and RTB are listed on the right.");
+                "Select a mission and loadout, then choose a departure airbase from the list or directly on the map. Only airbases that can currently spawn the aircraft are shown. Place the mission area on the fullscreen map. Active aircraft and RTB are listed on the right.");
             y += 94f;
         }
 
@@ -188,7 +188,7 @@ internal sealed class CommanderAirCommandUi
             16f + modeWidth * 2f,
             y,
             modeWidth,
-            "STATION AREA (BLUE) | Remains inside the circle and engages hostile aircraft there. TARGET ORDNANCE additionally permits attacks on hostile missiles.");
+            "STATION AREA (BLUE) | Returns to and remains inside the circle, but may engage valid hostile aircraft outside it whenever they are within weapon range. TARGET ORDNANCE additionally permits attacks on hostile missiles.");
         DrawModeButton(
             CommanderAirCommandService.AirCommandMode.Arad,
             "ARAD",
@@ -226,7 +226,7 @@ internal sealed class CommanderAirCommandUi
         Rect radiusPanel = new(12f, y, windowRect.width - 24f, 38f);
         GUI.Box(radiusPanel, string.Empty, CommanderUiTheme.Panel);
         GUI.Label(new Rect(radiusPanel.x + 12f, radiusPanel.y + 8f, 180f, 24f), "MISSION RADIUS", CommanderUiTheme.Header);
-        GUI.enabled = oldEnabled && !service.AwaitingAreaSelection;
+        GUI.enabled = oldEnabled && !dropdownOpen && !service.AwaitingAreaSelection;
         if (GUI.Button(new Rect(radiusPanel.x + 200f, radiusPanel.y + 5f, 34f, 28f), "-", CommanderUiTheme.Button)) service.StepMissionRadius(-5f);
         GUI.Label(new Rect(radiusPanel.x + 242f, radiusPanel.y + 8f, 100f, 24f), $"{service.SelectedMissionRadiusKm:0} km", CommanderUiTheme.Header);
         if (GUI.Button(new Rect(radiusPanel.x + 344f, radiusPanel.y + 5f, 34f, 28f), "+", CommanderUiTheme.Button)) service.StepMissionRadius(5f);
@@ -236,7 +236,7 @@ internal sealed class CommanderAirCommandUi
         if (service.SelectedMode == CommanderAirCommandService.AirCommandMode.AirGuard)
         {
             bool oldOrdnance = GUI.enabled;
-            GUI.enabled = oldOrdnance && !service.AwaitingAreaSelection;
+            GUI.enabled = oldOrdnance && !dropdownOpen && !service.AwaitingAreaSelection;
             service.TargetOrdnance = GUI.Toggle(
                 new Rect(12f, y, windowRect.width - 24f, 32f),
                 service.TargetOrdnance,
@@ -249,7 +249,7 @@ internal sealed class CommanderAirCommandUi
         if (service.SelectedMode == CommanderAirCommandService.AirCommandMode.Arad)
         {
             bool oldSaturation = GUI.enabled;
-            GUI.enabled = oldSaturation && !service.AwaitingAreaSelection;
+            GUI.enabled = oldSaturation && !dropdownOpen && !service.AwaitingAreaSelection;
             service.SaturationAttack = GUI.Toggle(
                 new Rect(12f, y, windowRect.width - 24f, 32f),
                 service.SaturationAttack,
@@ -516,25 +516,69 @@ internal sealed class CommanderAirCommandUi
     private void DrawMissionWindow(int windowId)
     {
         float y = 36f;
-        Rect view = new(10f, y, missionWindowRect.width - 20f, missionWindowRect.height - y - 12f);
+        Aircraft? selectedAircraft = null;
+        for (int i = 0; i < missionAircraft.Count; i++)
+        {
+            if (service.IsMissionAircraftSelected(missionAircraft[i]))
+            {
+                selectedAircraft = missionAircraft[i];
+                break;
+            }
+        }
+        float footerHeight = selectedAircraft != null ? 88f : 0f;
+        Rect view = new(10f, y, missionWindowRect.width - 20f, missionWindowRect.height - y - 12f - footerHeight);
         Rect inner = new(0f, 0f, view.width - 18f, Mathf.Max(view.height, missionAircraft.Count * 58f + 4f));
         missionScroll = GUI.BeginScrollView(view, missionScroll, inner);
+        bool oldEnabled = GUI.enabled;
         for (int i = 0; i < missionAircraft.Count; i++)
         {
             Aircraft aircraft = missionAircraft[i];
             float rowY = 2f + i * 58f;
-            if (GUI.Button(new Rect(2f, rowY, inner.width - 66f, 52f),
+            if (GUI.Button(new Rect(2f, rowY, inner.width - 120f, 52f),
                 service.GetMissionAircraftLabel(aircraft),
                 service.IsMissionAircraftSelected(aircraft) ? CommanderUiTheme.SelectedButton : CommanderUiTheme.Button))
             {
                 service.ToggleMissionAircraft(aircraft);
             }
-            if (GUI.Button(new Rect(inner.width - 60f, rowY, 58f, 52f), "RTB", CommanderUiTheme.DangerButton))
+            GUI.enabled = oldEnabled && !service.AwaitingAreaSelection;
+            if (GUI.Button(new Rect(inner.width - 114f, rowY, 54f, 52f), "AREA", CommanderUiTheme.Button))
+            {
+                service.BeginMissionAreaEdit(aircraft);
+            }
+            if (GUI.Button(new Rect(inner.width - 56f, rowY, 54f, 52f), "RTB", CommanderUiTheme.DangerButton))
             {
                 service.RequestReturnToBase(aircraft);
             }
+            GUI.enabled = oldEnabled;
         }
         GUI.EndScrollView();
+
+        if (selectedAircraft != null)
+        {
+            float footerY = view.yMax + 6f;
+            GUI.Box(new Rect(10f, footerY, missionWindowRect.width - 20f, 78f), string.Empty, CommanderUiTheme.Panel);
+            GUI.Label(new Rect(20f, footerY + 7f, 104f, 24f), "AREA RADIUS", CommanderUiTheme.MutedLabel);
+            GUI.enabled = oldEnabled && !service.AwaitingAreaSelection;
+            if (GUI.Button(new Rect(126f, footerY + 5f, 32f, 28f), "-", CommanderUiTheme.Button))
+            {
+                service.StepMissionRadius(selectedAircraft, -5f);
+            }
+            GUI.Label(new Rect(164f, footerY + 8f, 74f, 24f),
+                $"{service.GetMissionRadiusKm(selectedAircraft):0} km",
+                CommanderUiTheme.Header);
+            if (GUI.Button(new Rect(240f, footerY + 5f, 32f, 28f), "+", CommanderUiTheme.Button))
+            {
+                service.StepMissionRadius(selectedAircraft, 5f);
+            }
+            if (GUI.Button(
+                new Rect(20f, footerY + 39f, missionWindowRect.width - 40f, 32f),
+                "MOVE AREA CENTER",
+                CommanderUiTheme.PrimaryButton))
+            {
+                service.BeginMissionAreaEdit(selectedAircraft);
+            }
+            GUI.enabled = oldEnabled;
+        }
         GUI.DragWindow(new Rect(0f, 0f, missionWindowRect.width, 28f));
     }
 }

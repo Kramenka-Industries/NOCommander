@@ -1,15 +1,38 @@
+using HarmonyLib;
+using NuclearOption.MissionEditorScripts;
+using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 
 namespace NuclearOptionCommander;
 
 internal sealed class CommanderCameraFollowService
 {
+    private const float PovMouseLookScale = 2f;
+    private const float PovNearClipPlane = 0.05f;
+    private static readonly FieldInfo? FreeCameraPanField = AccessTools.Field(typeof(CameraFreeState), "panView");
+    private static readonly FieldInfo? FreeCameraTiltField = AccessTools.Field(typeof(CameraFreeState), "tiltView");
+
     private readonly CommanderSelectionService selectionService;
     private Unit? target;
     private Vector3 lastGlobalPosition;
-    private Quaternion lastTargetRotation;
     private Vector3 povLocalPosition;
     private Quaternion povLocalRotation;
+    private Aircraft? povEffectsAircraft;
+    private Vector3 povInertiaPosition;
+    private Vector3 povInertiaVelocity;
+    private Vector3 povPreviousVelocity;
+    private float povAntiSlump;
+    private float povPreviousGForce;
+    private float povLowFrequencyShake;
+    private float povHighFrequencyShake;
+    private readonly List<PovCrewSeat> povCrewSeats = new();
+    private readonly HashSet<Aircraft> loggedMissingVisualCrew = new();
+    private Aircraft? povCrewAircraft;
+    private int povCrewTurretCount = -1;
+    private Camera? povClipCamera;
+    private float povPreviousNearClipPlane;
+    private int povCrewIndex = -1;
     private float spacePressedAt;
     private bool spaceHeld;
     private bool longSpaceTriggered;
@@ -22,10 +45,19 @@ internal sealed class CommanderCameraFollowService
 
     internal static CommanderCameraFollowService? Instance { get; private set; }
     internal bool Enabled { get; private set; }
-    internal bool FollowRotation { get; private set; }
     internal bool PovMode { get; private set; }
+    internal static bool IsPovActive => Instance?.Enabled == true && Instance.PovMode;
     internal bool CanFollow => selectionService.FocusedSelection is Unit unit && !unit.disabled;
     internal Aircraft? FollowedAircraft => Enabled ? target as Aircraft : null;
+    internal int PovCrewIndex => povCrewIndex;
+    internal IReadOnlyList<PovCrewSeat> PovCrewSeats
+    {
+        get
+        {
+            RefreshPovCrewSeats();
+            return povCrewSeats;
+        }
+    }
 
     internal void Toggle()
     {
@@ -43,29 +75,7 @@ internal sealed class CommanderCameraFollowService
 
         target = selected;
         lastGlobalPosition = selected.GlobalPosition().AsVector3();
-        lastTargetRotation = selected.transform.rotation;
         Enabled = true;
-    }
-
-    internal void ToggleRotation()
-    {
-        if (!CanFollow)
-        {
-            return;
-        }
-
-        if (!Enabled)
-        {
-            Toggle();
-        }
-
-        FollowRotation = !FollowRotation;
-        PovMode = false;
-        Unit? selected = selectionService.FocusedSelection;
-        if (selected != null)
-        {
-            lastTargetRotation = selected.transform.rotation;
-        }
     }
 
     internal void TogglePov()
@@ -80,9 +90,86 @@ internal sealed class CommanderCameraFollowService
             Toggle();
         }
 
-        PovMode = !PovMode;
-        FollowRotation = false;
+        if (PovMode)
+        {
+            ExitPovMode();
+            return;
+        }
+
+        PovMode = true;
+        povCrewIndex = -1;
+        BindPovEffectsAircraft(target as Aircraft);
         CapturePovOffset();
+        TryMoveToFirstCrewPosition();
+        EnsurePovNearClip();
+    }
+
+    private bool TryMoveToFirstCrewPosition()
+    {
+        IReadOnlyList<PovCrewSeat> seats = PovCrewSeats;
+        for (int i = 0; i < seats.Count; i++)
+        {
+            if (seats[i].IsAvailable)
+            {
+                return TryMoveToCrewPosition(i);
+            }
+        }
+        return false;
+    }
+
+    internal bool TryMoveToCrewPosition(int crewIndex)
+    {
+        Aircraft? aircraft = FollowedAircraft;
+        CameraStateManager? cameraManager = SceneSingleton<CameraStateManager>.i;
+        IReadOnlyList<PovCrewSeat> seats = PovCrewSeats;
+        if (!PovMode
+            || aircraft == null
+            || cameraManager == null
+            || crewIndex < 0
+            || crewIndex >= seats.Count
+            || !seats[crewIndex].IsAvailable)
+        {
+            return false;
+        }
+
+        PovCrewSeat seat = seats[crewIndex];
+        Transform crewTransform = seat.Anchor;
+        Vector3 viewPosition;
+        Quaternion viewRotation;
+
+        Pilot? primaryPilot = aircraft.pilots != null && aircraft.pilots.Length > 0
+            ? aircraft.pilots[0]
+            : null;
+        Transform? cockpitView = aircraft.cockpitViewPoint;
+        if (seat.Pilot != null && primaryPilot != null && cockpitView != null)
+        {
+            Vector3 seatViewOffset = primaryPilot.transform.InverseTransformPoint(cockpitView.position);
+            Quaternion seatViewRotation = Quaternion.Inverse(primaryPilot.transform.rotation) * cockpitView.rotation;
+            viewPosition = crewTransform.TransformPoint(seatViewOffset);
+            viewRotation = crewTransform.rotation * seatViewRotation;
+        }
+        else if (seat.Turret != null)
+        {
+            Transform aimTransform = seat.ViewDirection != null ? seat.ViewDirection : crewTransform;
+            viewPosition = aimTransform.position
+                - aimTransform.forward * 0.55f
+                + aircraft.transform.up * 0.35f;
+            viewRotation = Quaternion.LookRotation(aimTransform.forward, aircraft.transform.up);
+        }
+        else
+        {
+            viewPosition = crewTransform.position + aircraft.transform.forward * 0.05f;
+            viewRotation = aircraft.transform.rotation;
+        }
+
+        cameraManager.transform.SetPositionAndRotation(viewPosition, viewRotation);
+        cameraManager.cameraVelocity = Vector3.zero;
+        povLocalPosition = aircraft.transform.InverseTransformPoint(viewPosition);
+        povLocalRotation = Quaternion.Inverse(aircraft.transform.rotation) * viewRotation;
+        povCrewIndex = crewIndex;
+        ResetPovMotionEffects();
+        SyncFreeCameraAngles(cameraManager);
+        return true;
     }
 
     internal void CenterOnSelection()
@@ -109,10 +196,12 @@ internal sealed class CommanderCameraFollowService
 
         target = selected;
         lastGlobalPosition = selected.GlobalPosition().AsVector3();
-        lastTargetRotation = selected.transform.rotation;
         if (PovMode)
         {
+            povCrewIndex = -1;
+            BindPovEffectsAircraft(selected as Aircraft);
             CapturePovOffset();
+            TryMoveToFirstCrewPosition();
         }
     }
 
@@ -143,9 +232,11 @@ internal sealed class CommanderCameraFollowService
         if (!ReferenceEquals(selected, target))
         {
             target = selected;
+            povCrewIndex = -1;
+            BindPovEffectsAircraft(PovMode ? selected as Aircraft : null);
             lastGlobalPosition = currentGlobalPosition;
-            lastTargetRotation = selected.transform.rotation;
             CapturePovOffset();
+            TryMoveToFirstCrewPosition();
             return;
         }
 
@@ -156,26 +247,55 @@ internal sealed class CommanderCameraFollowService
             {
                 cameraManager.transform.position = selected.transform.TransformPoint(povLocalPosition);
                 cameraManager.transform.rotation = selected.transform.rotation * povLocalRotation;
+                SyncFreeCameraAngles(cameraManager);
             }
             else
             {
                 cameraManager.transform.position += currentGlobalPosition - lastGlobalPosition;
-                if (FollowRotation)
-                {
-                    Quaternion rotationDelta = selected.transform.rotation * Quaternion.Inverse(lastTargetRotation);
-                    cameraManager.transform.rotation = rotationDelta * cameraManager.transform.rotation;
-                }
             }
         }
         lastGlobalPosition = currentGlobalPosition;
-        lastTargetRotation = selected.transform.rotation;
+    }
+
+    internal void FixedTick()
+    {
+        if (!PovMode || povEffectsAircraft == null || Time.deltaTime <= 0f)
+        {
+            return;
+        }
+
+        Rigidbody? cockpitRigidbody = povEffectsAircraft.CockpitRB();
+        CameraStateManager? cameraManager = SceneSingleton<CameraStateManager>.i;
+        if (cockpitRigidbody == null || cameraManager == null)
+        {
+            return;
+        }
+
+        Vector3 pointVelocity = cockpitRigidbody.GetPointVelocity(cameraManager.transform.position);
+        Vector3 acceleration = povPreviousVelocity == Vector3.zero
+            ? Vector3.zero
+            : (pointVelocity - povPreviousVelocity) / Time.deltaTime;
+        Vector3 springForce = -500f * povInertiaPosition;
+        float verticalDisplacement = Vector3.Dot(cameraManager.transform.up, -povInertiaPosition);
+        povAntiSlump += verticalDisplacement * 1000f * Time.deltaTime;
+        springForce += cameraManager.transform.up * povAntiSlump;
+        povInertiaVelocity += (-Vector3.ClampMagnitude(acceleration, 500f) + springForce) * Time.deltaTime;
+        povInertiaVelocity -= Vector3.ClampMagnitude(
+            povInertiaVelocity * 20f * Time.deltaTime,
+            povInertiaVelocity.magnitude);
+        float gForce = acceleration.magnitude / 9.81f;
+        float jerk = povPreviousGForce == 0f ? 0f : (gForce - povPreviousGForce) / Time.deltaTime;
+        povPreviousVelocity = pointVelocity;
+        povPreviousGForce = gForce;
+        povLowFrequencyShake = Mathf.Clamp(jerk * 0.005f, povLowFrequencyShake, 1f);
+        povLowFrequencyShake = Mathf.Lerp(povLowFrequencyShake, 0f, 5f * Time.fixedDeltaTime);
+        povHighFrequencyShake = Mathf.Lerp(povHighFrequencyShake, 0f, 4f * Time.fixedDeltaTime);
     }
 
     internal void Disable()
     {
+        ExitPovMode();
         Enabled = false;
-        FollowRotation = false;
-        PovMode = false;
         target = null;
     }
 
@@ -193,15 +313,26 @@ internal sealed class CommanderCameraFollowService
             return;
         }
 
-        cameraManager.transform.position = selected.transform.TransformPoint(service.povLocalPosition);
+        service.EnsurePovNearClip();
+
+        // Keep FreeCam translation, but rebuild rotation from the complete unit pose.
+        // CameraFreeState always produces a zero-roll Euler rotation, which otherwise
+        // slowly removes aircraft bank from an attached POV.
+        Vector3 movedPosition = cameraManager.transform.position;
+        service.povLocalPosition = selected.transform.InverseTransformPoint(movedPosition);
+        service.IntegratePovInertiaPosition();
+        cameraManager.transform.position = movedPosition
+            + service.povInertiaPosition * PlayerSettings.cockpitCamInertia
+            + service.GetPovCameraShake();
+        service.ApplyPovLookInput(cameraManager);
         cameraManager.transform.rotation = selected.transform.rotation * service.povLocalRotation;
-        cameraManager.cameraVelocity = Vector3.zero;
+        SyncFreeCameraAngles(cameraManager);
     }
 
     private void HandleSpaceShortcut()
     {
         var shortcut = CommanderSettings.CameraCenterFollow;
-        if (shortcut.IsDown())
+        if (CommanderShortcutInput.IsDown(shortcut))
         {
             spaceHeld = true;
             longSpaceTriggered = false;
@@ -218,7 +349,7 @@ internal sealed class CommanderCameraFollowService
             longSpaceTriggered = true;
         }
 
-        if (spaceHeld && shortcut.IsUp())
+        if (spaceHeld && CommanderShortcutInput.IsUp(shortcut))
         {
             if (!longSpaceTriggered)
             {
@@ -238,6 +369,399 @@ internal sealed class CommanderCameraFollowService
         }
 
         povLocalPosition = selected.transform.InverseTransformPoint(cameraManager.transform.position);
-        povLocalRotation = Quaternion.Inverse(selected.transform.rotation) * cameraManager.transform.rotation;
+        Vector3 localForward = Quaternion.Inverse(selected.transform.rotation)
+            * cameraManager.transform.forward;
+        if (localForward.sqrMagnitude < 0.001f)
+        {
+            localForward = Vector3.forward;
+        }
+
+        // Preserve where the camera is looking, but do not preserve world-level roll as
+        // a counter-rotation. POV roll must come entirely from the attached unit.
+        Vector3 localUp = Mathf.Abs(Vector3.Dot(localForward.normalized, Vector3.up)) > 0.995f
+            ? Vector3.forward
+            : Vector3.up;
+        povLocalRotation = Quaternion.LookRotation(localForward, localUp);
+        cameraManager.transform.rotation = selected.transform.rotation * povLocalRotation;
+        SyncFreeCameraAngles(cameraManager);
+    }
+
+    private static void SyncFreeCameraAngles(CameraStateManager cameraManager)
+    {
+        if (cameraManager.currentState != cameraManager.freeState)
+        {
+            return;
+        }
+
+        Vector3 euler = cameraManager.transform.eulerAngles;
+        FreeCameraPanField?.SetValue(cameraManager.freeState, euler.y);
+        FreeCameraTiltField?.SetValue(cameraManager.freeState, euler.x);
+    }
+
+    private void ApplyPovLookInput(CameraStateManager cameraManager)
+    {
+        if (InputFieldChecker.InsideInputField
+            || CommanderTacticalMapService.Instance?.IsFullscreenOpen == true
+            || !CommanderShortcutInput.IsPressed(CommanderSettings.CameraFreeLook))
+        {
+            return;
+        }
+
+        float fovScale = Mathf.Min(cameraManager.mainCamera.fieldOfView / 20f, 1f);
+        float pitch = (PlayerSettings.viewInvertPitch ? 1f : -1f)
+            * fovScale
+            * Input.GetAxisRaw("Mouse Y")
+            * PovMouseLookScale
+            * PlayerSettings.viewSensitivity;
+        float yaw = fovScale
+            * Input.GetAxisRaw("Mouse X")
+            * PovMouseLookScale
+            * PlayerSettings.viewSensitivity;
+
+        if (Mathf.Approximately(pitch, 0f) && Mathf.Approximately(yaw, 0f))
+        {
+            return;
+        }
+
+        povLocalRotation = Quaternion.AngleAxis(yaw, Vector3.up)
+            * povLocalRotation
+            * Quaternion.AngleAxis(pitch, Vector3.right);
+    }
+
+    private void EnsurePovNearClip()
+    {
+        Camera? camera = SceneSingleton<CameraStateManager>.i?.mainCamera;
+        if (camera == null)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(camera, povClipCamera))
+        {
+            RestorePovNearClip();
+            povClipCamera = camera;
+            povPreviousNearClipPlane = camera.nearClipPlane;
+        }
+        camera.nearClipPlane = PovNearClipPlane;
+    }
+
+    private void ExitPovMode()
+    {
+        BindPovEffectsAircraft(null);
+        RestorePovNearClip();
+        PovMode = false;
+        povCrewIndex = -1;
+    }
+
+    private void BindPovEffectsAircraft(Aircraft? aircraft)
+    {
+        if (ReferenceEquals(povEffectsAircraft, aircraft))
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(povEffectsAircraft, null))
+        {
+            povEffectsAircraft.onShake -= OnPovAircraftShake;
+        }
+        povEffectsAircraft = aircraft;
+        povCrewAircraft = null;
+        povCrewTurretCount = -1;
+        povCrewSeats.Clear();
+        if (povEffectsAircraft != null)
+        {
+            povEffectsAircraft.onShake += OnPovAircraftShake;
+        }
+        ResetPovMotionEffects();
+    }
+
+    private void RefreshPovCrewSeats()
+    {
+        Aircraft? aircraft = FollowedAircraft;
+        int turretCount = CountAircraftTurrets(aircraft);
+        if (ReferenceEquals(povCrewAircraft, aircraft) && povCrewTurretCount == turretCount)
+        {
+            return;
+        }
+
+        povCrewAircraft = aircraft;
+        povCrewTurretCount = turretCount;
+        povCrewSeats.Clear();
+        if (aircraft == null)
+        {
+            return;
+        }
+
+        if (aircraft.pilots != null)
+        {
+            for (int i = 0; i < aircraft.pilots.Length; i++)
+            {
+                Pilot? pilot = aircraft.pilots[i];
+                if (pilot != null)
+                {
+                    povCrewSeats.Add(new PovCrewSeat(
+                        i == 0 ? "PILOT" : $"CREW {i + 1}",
+                        pilot.transform,
+                        pilot));
+                }
+            }
+        }
+
+        HashSet<Transform> knownHeads = new();
+        int gunnerCount = 0;
+        Animator[] animators = aircraft.GetComponentsInChildren<Animator>(includeInactive: true);
+        for (int animatorIndex = 0; animatorIndex < animators.Length; animatorIndex++)
+        {
+            Animator animator = animators[animatorIndex];
+            if (animator == null || !animator.isHuman || animator.GetComponentInParent<Pilot>() != null)
+            {
+                continue;
+            }
+
+            Transform? head = animator.GetBoneTransform(HumanBodyBones.Head);
+            if (head == null || !knownHeads.Add(head) || IsNearRegisteredPilot(aircraft, head.position))
+            {
+                continue;
+            }
+
+            gunnerCount++;
+            povCrewSeats.Add(new PovCrewSeat($"GUNNER {gunnerCount}", head, null));
+        }
+
+        SkinnedMeshRenderer[] renderers = aircraft.GetComponentsInChildren<SkinnedMeshRenderer>(includeInactive: true);
+        for (int rendererIndex = 0; rendererIndex < renderers.Length; rendererIndex++)
+        {
+            SkinnedMeshRenderer renderer = renderers[rendererIndex];
+            if (renderer == null || renderer.GetComponentInParent<Pilot>() != null)
+            {
+                continue;
+            }
+
+            Transform[] bones = renderer.bones;
+            for (int boneIndex = 0; boneIndex < bones.Length; boneIndex++)
+            {
+                Transform? bone = bones[boneIndex];
+                if (bone == null
+                    || !IsHeadBoneName(bone.name)
+                    || !knownHeads.Add(bone)
+                    || IsNearRegisteredPilot(aircraft, bone.position))
+                {
+                    continue;
+                }
+
+                gunnerCount++;
+                povCrewSeats.Add(new PovCrewSeat(
+                    $"GUNNER {gunnerCount}",
+                    bone,
+                    null));
+            }
+        }
+
+        AddTurretCrewSeats(aircraft, knownHeads, ref gunnerCount);
+
+        if (gunnerCount == 0 && loggedMissingVisualCrew.Add(aircraft))
+        {
+            LogVisualCrewDiagnostics(aircraft, animators, renderers);
+        }
+    }
+
+    private static int CountAircraftTurrets(Aircraft? aircraft)
+    {
+        if (aircraft?.weaponStations == null)
+        {
+            return 0;
+        }
+
+        int count = 0;
+        for (int i = 0; i < aircraft.weaponStations.Count; i++)
+        {
+            WeaponStation? station = aircraft.weaponStations[i];
+            if (station?.Turrets != null)
+            {
+                count += station.Turrets.Count;
+            }
+        }
+        return count;
+    }
+
+    private void AddTurretCrewSeats(
+        Aircraft aircraft,
+        HashSet<Transform> knownAnchors,
+        ref int gunnerCount)
+    {
+        if (aircraft.weaponStations == null)
+        {
+            return;
+        }
+
+        for (int stationIndex = 0; stationIndex < aircraft.weaponStations.Count; stationIndex++)
+        {
+            WeaponStation? station = aircraft.weaponStations[stationIndex];
+            if (station?.Turrets == null)
+            {
+                continue;
+            }
+
+            Transform? viewDirection = station.Weapons != null && station.Weapons.Count > 0
+                ? station.Weapons[0]?.transform
+                : null;
+            for (int turretIndex = 0; turretIndex < station.Turrets.Count; turretIndex++)
+            {
+                Turret? turret = station.Turrets[turretIndex];
+                if (turret == null || !knownAnchors.Add(turret.transform))
+                {
+                    continue;
+                }
+
+                gunnerCount++;
+                povCrewSeats.Add(new PovCrewSeat(
+                    $"GUNNER {gunnerCount}",
+                    turret.transform,
+                    null,
+                    turret,
+                    viewDirection));
+            }
+        }
+    }
+
+    private void IntegratePovInertiaPosition()
+    {
+        povInertiaPosition += povInertiaVelocity * Mathf.Min(Time.deltaTime, 1f / 60f);
+        if (povInertiaPosition.magnitude > 0.15f)
+        {
+            povInertiaVelocity = Vector3.zero;
+            povInertiaPosition = Vector3.ClampMagnitude(povInertiaPosition, 0.15f);
+        }
+    }
+
+    private static void LogVisualCrewDiagnostics(
+        Aircraft aircraft,
+        Animator[] animators,
+        SkinnedMeshRenderer[] renderers)
+    {
+        CommanderPlugin.Log.LogInfo(
+            $"POV visual crew diagnostics: aircraft={aircraft.unitName}, animators={animators.Length}, skinnedRenderers={renderers.Length}");
+        for (int i = 0; i < animators.Length; i++)
+        {
+            Animator animator = animators[i];
+            if (animator != null)
+            {
+                CommanderPlugin.Log.LogInfo(
+                    $"POV animator[{i}]: path={GetTransformPath(aircraft.transform, animator.transform)}, human={animator.isHuman}, avatar={(animator.avatar != null ? animator.avatar.name : "null")}");
+            }
+        }
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SkinnedMeshRenderer renderer = renderers[i];
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            List<string> relevantBones = new();
+            Transform[] bones = renderer.bones;
+            for (int boneIndex = 0; boneIndex < bones.Length; boneIndex++)
+            {
+                Transform? bone = bones[boneIndex];
+                if (bone != null
+                    && (bone.name.IndexOf("head", System.StringComparison.OrdinalIgnoreCase) >= 0
+                        || bone.name.IndexOf("neck", System.StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    relevantBones.Add(bone.name);
+                }
+            }
+            CommanderPlugin.Log.LogInfo(
+                $"POV skinned renderer[{i}]: path={GetTransformPath(aircraft.transform, renderer.transform)}, mesh={(renderer.sharedMesh != null ? renderer.sharedMesh.name : "null")}, bones={bones.Length}, headBones={string.Join(",", relevantBones)}");
+        }
+    }
+
+    private static string GetTransformPath(Transform root, Transform child)
+    {
+        List<string> parts = new();
+        Transform? current = child;
+        while (current != null)
+        {
+            parts.Add(current.name);
+            if (current == root)
+            {
+                break;
+            }
+            current = current.parent;
+        }
+        parts.Reverse();
+        return string.Join("/", parts);
+    }
+
+    private static bool IsHeadBoneName(string name)
+    {
+        string normalized = name.ToLowerInvariant();
+        return normalized.EndsWith("head")
+            || normalized.Contains("headbone");
+    }
+
+    private static bool IsNearRegisteredPilot(Aircraft aircraft, Vector3 position)
+    {
+        if (aircraft.pilots == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < aircraft.pilots.Length; i++)
+        {
+            Pilot? pilot = aircraft.pilots[i];
+            if (pilot != null && (pilot.transform.position - position).sqrMagnitude < 2.25f)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void OnPovAircraftShake(Aircraft.OnShake shake)
+    {
+        povLowFrequencyShake += shake.lowFreqShake;
+        povHighFrequencyShake += shake.highFreqShake;
+    }
+
+    private Vector3 GetPovCameraShake()
+    {
+        povLowFrequencyShake = Mathf.Min(povLowFrequencyShake, 1f);
+        povHighFrequencyShake = Mathf.Min(povHighFrequencyShake, 1f);
+        if (povLowFrequencyShake < 0.01f && povHighFrequencyShake < 0.05f)
+        {
+            return Vector3.zero;
+        }
+
+        float time = Time.timeSinceLevelLoad;
+        Vector3 lowFrequencyOffset = 0.03f * new Vector3(
+            Mathf.PerlinNoise1D(time * 16f) - 0.5f,
+            Mathf.PerlinNoise1D(time * 13.333334f) - 0.5f,
+            Mathf.PerlinNoise1D(time * 9.6856f) - 0.5f);
+        Vector3 highFrequencyOffset = 0.01f * new Vector3(
+            Mathf.PerlinNoise1D(time * 32f) - 0.5f,
+            Mathf.PerlinNoise1D(time * 26.666668f) - 0.5f,
+            Mathf.PerlinNoise1D(time * 19.3712f) - 0.5f);
+        return lowFrequencyOffset * Mathf.Max(povLowFrequencyShake - 0.01f, 0f)
+            + highFrequencyOffset * Mathf.Max(povHighFrequencyShake - 0.05f, 0f);
+    }
+
+    private void ResetPovMotionEffects()
+    {
+        povInertiaPosition = Vector3.zero;
+        povInertiaVelocity = Vector3.zero;
+        povPreviousVelocity = Vector3.zero;
+        povAntiSlump = 0f;
+        povPreviousGForce = 0f;
+        povLowFrequencyShake = 0f;
+        povHighFrequencyShake = 0f;
+    }
+
+    private void RestorePovNearClip()
+    {
+        if (povClipCamera != null)
+        {
+            povClipCamera.nearClipPlane = povPreviousNearClipPlane;
+        }
+        povClipCamera = null;
     }
 }

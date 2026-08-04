@@ -19,6 +19,11 @@ public sealed class CommanderPlugin : BaseUnityPlugin
     {
         Instance = this;
         CommanderSettings.Initialize(Config);
+        if (!CommanderSettings.ModEnabled)
+        {
+            Logger.LogInfo($"{PluginInfo.Name} {PluginInfo.Version} is disabled in configuration. No patches were installed.");
+            return;
+        }
         harmony = new Harmony(PluginInfo.Guid);
         harmony.PatchAll();
 

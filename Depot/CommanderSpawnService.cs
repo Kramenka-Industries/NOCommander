@@ -10,6 +10,7 @@ internal sealed class CommanderSpawnService
     private const float SpawnUpdateIntervalSeconds = 0.3f;
     private const float DepotSpawnDetectionRadius = 180f;
     private const float RallyExitToleranceMeters = 12f;
+    private const float RallyFormationSpacingMeters = 25f;
     private const float StatusDurationSeconds = 4f;
 
     private readonly CommanderSelectionService selectionService;
@@ -205,7 +206,7 @@ internal sealed class CommanderSpawnService
             RefreshVehicleDefinitions();
         }
 
-        if (!CommanderSettings.LimitVehiclesToOwnSide)
+        if (!CommanderSettings.LimitToFactoryVehicles)
         {
             return categories;
         }
@@ -250,7 +251,7 @@ internal sealed class CommanderSpawnService
             source = filtered;
         }
 
-        bool factionOnly = CommanderSettings.LimitVehiclesToOwnSide;
+        bool factionOnly = CommanderSettings.LimitToFactoryVehicles;
         if (!reserveOnly && !factionOnly)
         {
             return source;
@@ -406,6 +407,13 @@ internal sealed class CommanderSpawnService
             return;
         }
 
+        if (queue.PendingDefinitions.Count == 0
+            && queue.ExpectedSpawnDefinitions.Count == 0
+            && queue.PendingRallyUnits.Count == 0)
+        {
+            queue.NextRallySlot = 0;
+        }
+
         int stagedCount = queue.StagedDefinitions.Count;
         for (int i = 0; i < queue.StagedDefinitions.Count; i++)
         {
@@ -448,6 +456,7 @@ internal sealed class CommanderSpawnService
 
         queue.HasRallyPoint = false;
         queue.PendingRallyUnits.Clear();
+        queue.NextRallySlot = 0;
         SetStatus("Cleared rally point.");
     }
 
@@ -573,6 +582,11 @@ internal sealed class CommanderSpawnService
 
         queue.HasRallyPoint = true;
         queue.RallyPoint = rallyPoint;
+        queue.NextRallySlot = 0;
+        for (int i = 0; i < queue.PendingRallyUnits.Count; i++)
+        {
+            queue.PendingRallyUnits[i].RallySlot = queue.NextRallySlot++;
+        }
         awaitingRallyPointSelection = false;
         rallySelectionQueue = null;
         tacticalMapService.SuppressMapFollow = false;
@@ -892,7 +906,7 @@ internal sealed class CommanderSpawnService
 
             if (queue.HasRallyPoint)
             {
-                queue.PendingRallyUnits.Add(new PendingRallyUnit(unit));
+                queue.PendingRallyUnits.Add(new PendingRallyUnit(unit, queue.NextRallySlot++));
             }
 
             break;
@@ -939,7 +953,11 @@ internal sealed class CommanderSpawnService
                 continue;
             }
 
-            if (!CommanderGameAccess.TrySetDestination(unit, queue.RallyPoint))
+            GlobalPosition rallyDestination = CommanderDestinationFormation.ApplyOffset(
+                queue.RallyPoint,
+                pendingUnit.RallySlot,
+                RallyFormationSpacingMeters);
+            if (!CommanderGameAccess.TrySetDestination(unit, rallyDestination))
             {
                 continue;
             }
@@ -1040,16 +1058,19 @@ internal sealed class CommanderSpawnService
         internal bool PendingSummaryDirty { get; set; } = true;
         internal bool HasRallyPoint { get; set; }
         internal GlobalPosition RallyPoint { get; set; }
+        internal int NextRallySlot { get; set; }
     }
 
     internal sealed class PendingRallyUnit
     {
-        internal PendingRallyUnit(Unit unit)
+        internal PendingRallyUnit(Unit unit, int rallySlot)
         {
             Unit = unit;
+            RallySlot = rallySlot;
         }
 
         internal Unit Unit { get; }
+        internal int RallySlot { get; set; }
         internal GlobalPosition ExitCommand { get; set; }
         internal bool ExitCommandLocked { get; set; }
     }

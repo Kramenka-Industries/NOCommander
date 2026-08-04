@@ -78,6 +78,7 @@ internal sealed partial class CommanderSupplyHeliService
         pendingAircraftSpawn = new PendingAircraftSpawn(
             hq,
             aircraft.Definition,
+            airbase,
             "Naval supplies",
             ship.GlobalPosition(),
             false,

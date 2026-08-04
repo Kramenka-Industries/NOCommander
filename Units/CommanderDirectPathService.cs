@@ -24,6 +24,7 @@ internal sealed class CommanderDirectPathService
         return unit is GroundVehicle vehicle
             && !vehicle.disabled
             && CommanderGameAccess.IsFriendlyUnit(vehicle, CommanderGameAccess.GetLocalHq())
+            && !CommanderSamSiteService.IsReservedConstructionJacknife(vehicle)
             && !CommanderGameAccess.IsTrailerVehicleDefinition(vehicle.definition as VehicleDefinition);
     }
 
@@ -81,6 +82,22 @@ internal sealed class CommanderDirectPathService
 
         pathfinder.Shortcut(target);
         return true;
+    }
+
+    internal static void ForceEnabled(GroundVehicle? vehicle)
+    {
+        if (Instance != null && vehicle != null && !vehicle.disabled)
+        {
+            Instance.directRouteVehicles.Add(vehicle);
+        }
+    }
+
+    internal static void Forget(GroundVehicle? vehicle)
+    {
+        if (Instance != null && vehicle != null)
+        {
+            Instance.directRouteVehicles.Remove(vehicle);
+        }
     }
 
     private static void ReapplyCurrentDestination(GroundVehicle vehicle)

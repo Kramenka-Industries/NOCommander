@@ -10,6 +10,7 @@ internal sealed class CommanderModeController : MonoBehaviour
     private CommanderSelectionService? selectionService;
     private CommanderFactionVehicleService? factionVehicleService;
     private CommanderCameraFollowService? cameraFollowService;
+    private CommanderPovCrewUi? povCrewUi;
     private CommanderTacticalMapService? tacticalMapService;
     private CommanderRadarService? radarService;
     private CommanderMobileEmplacementService? mobileEmplacementService;
@@ -17,6 +18,9 @@ internal sealed class CommanderModeController : MonoBehaviour
     private CommanderRepairService? repairService;
     private CommanderSupplyHeliService? supplyHeliService;
     private CommanderAirCommandService? airCommandService;
+    private CommanderNavalPurchaseService? navalPurchaseService;
+    private CommanderSamSiteAnalyzerService? samSiteAnalyzerService;
+    private CommanderSamSiteService? samSiteService;
     private CommanderSpawnService? spawnService;
     private CommanderMarkerService? markerService;
     private CommanderMoveService? moveService;
@@ -35,6 +39,7 @@ internal sealed class CommanderModeController : MonoBehaviour
         cursorController = new CommanderCursorController();
         selectionService = new CommanderSelectionService();
         cameraFollowService = new CommanderCameraFollowService(selectionService);
+        povCrewUi = new CommanderPovCrewUi(cameraFollowService);
         factionVehicleService = new CommanderFactionVehicleService();
         tacticalMapService = new CommanderTacticalMapService(cameraFollowService);
         radarService = new CommanderRadarService(selectionService);
@@ -43,12 +48,19 @@ internal sealed class CommanderModeController : MonoBehaviour
         repairService = new CommanderRepairService();
         supplyHeliService = new CommanderSupplyHeliService();
         airCommandService = new CommanderAirCommandService(tacticalMapService);
+        navalPurchaseService = new CommanderNavalPurchaseService(tacticalMapService);
+        samSiteAnalyzerService = new CommanderSamSiteAnalyzerService();
+        samSiteService = new CommanderSamSiteService(
+            samSiteAnalyzerService,
+            supplyHeliService);
         spawnService = new CommanderSpawnService(selectionService, factionVehicleService, tacticalMapService);
         persistentOperations = new CommanderPersistentOperations(
             spawnService,
             supplyHeliService,
             airCommandService,
-            mobileEmplacementService);
+            mobileEmplacementService,
+            samSiteAnalyzerService,
+            samSiteService);
         markerService = new CommanderMarkerService(selectionService);
         moveService = new CommanderMoveService(selectionService);
         overlayUi = new CommanderOverlayUi(
@@ -61,6 +73,10 @@ internal sealed class CommanderModeController : MonoBehaviour
             directPathService,
             supplyHeliService,
             airCommandService,
+            navalPurchaseService,
+            samSiteAnalyzerService,
+            samSiteService,
+            UnlockAdvancedFeatures,
             () => Deactivate());
         inputController = new CommanderInputController(
             overlayUi,
@@ -72,24 +88,28 @@ internal sealed class CommanderModeController : MonoBehaviour
             supplyHeliService,
             mobileEmplacementService,
             airCommandService);
+        inputController.SetPovCrewUi(povCrewUi);
         SceneManager.activeSceneChanged += OnActiveSceneChanged;
     }
 
     private void Update()
     {
         CommanderUiScale.RefreshResolutionPreset();
-        persistentOperations?.Tick();
+        if (CommanderFeatureGate.AdvancedFeaturesEnabled)
+        {
+            persistentOperations?.Tick();
+        }
         if (!IsActive)
         {
             return;
         }
 
-        if (CommanderSettings.ToggleUi.IsDown())
+        if (CommanderShortcutInput.IsDown(CommanderSettings.ToggleUi))
         {
             overlayUi?.ToggleScreenshotUi();
         }
 
-        if (GameManager.GetLocalAircraft(out _))
+        if (IsPlayerInOperationalAircraft())
         {
             Deactivate(restorePreviousCamera: false);
             return;
@@ -101,13 +121,26 @@ internal sealed class CommanderModeController : MonoBehaviour
         moveService?.Tick();
         markerService?.Tick();
         tacticalMapService?.Tick();
-        radarService?.Tick();
-        mobileEmplacementService?.TickActive();
-        supplyHeliService?.TickActive();
-        airCommandService?.TickActive();
-        spawnService?.TickActive();
+        if (CommanderFeatureGate.AdvancedFeaturesEnabled)
+        {
+            radarService?.Tick();
+            mobileEmplacementService?.TickActive();
+            supplyHeliService?.TickActive();
+            airCommandService?.TickActive();
+            navalPurchaseService?.TickActive();
+            samSiteAnalyzerService?.TickActive();
+            spawnService?.TickActive();
+        }
         overlayUi?.Tick();
         inputController?.Tick();
+    }
+
+    private void FixedUpdate()
+    {
+        if (IsActive)
+        {
+            cameraFollowService?.FixedTick();
+        }
     }
 
     private void OnGUI()
@@ -125,6 +158,10 @@ internal sealed class CommanderModeController : MonoBehaviour
             }
 
             overlayUi?.Draw();
+            if (overlayUi?.CommanderUiHidden != true)
+            {
+                povCrewUi?.Draw();
+            }
             if (overlayUi?.ShowTacticalMapUi == true)
             {
                 tacticalMapService?.DrawControls();
@@ -142,7 +179,7 @@ internal sealed class CommanderModeController : MonoBehaviour
 
     private bool ShouldShowCommanderEntry()
     {
-        if (GameManager.GetLocalAircraft(out _)
+        if (IsPlayerInOperationalAircraft()
             || (GameManager.gameState != GameState.SinglePlayer && GameManager.gameState != GameState.Multiplayer))
         {
             return false;
@@ -195,7 +232,7 @@ internal sealed class CommanderModeController : MonoBehaviour
             return;
         }
 
-        if (GameManager.GetLocalAircraft(out _))
+        if (IsPlayerInOperationalAircraft())
         {
             CommanderPlugin.Log.LogWarning("Commander mode is only available while the player is outside an aircraft.");
             return;
@@ -213,25 +250,54 @@ internal sealed class CommanderModeController : MonoBehaviour
             return;
         }
 
+        CommanderFeatureGate.RefreshMission();
         cursorController?.Activate();
         IsActive = true;
         selectionService?.Activate();
         markerService?.Activate();
+        if (CommanderFeatureGate.AdvancedFeaturesEnabled)
+        {
+            ActivateAdvancedServices();
+        }
+        overlayUi?.Activate();
+        if (CommanderFeatureGate.AdvancedFeaturesEnabled
+            && overlayUi?.ShowTacticalMapUi == true)
+        {
+            tacticalMapService?.Open();
+        }
+        CommanderPlugin.Log.LogInfo(
+            $"Commander mode enabled: mission={CommanderFeatureGate.MissionName}, features={(CommanderFeatureGate.AdvancedFeaturesEnabled ? "full" : "core")}.");
+    }
+
+    private void UnlockAdvancedFeatures()
+    {
+        if (CommanderFeatureGate.AdvancedFeaturesEnabled)
+        {
+            return;
+        }
+
+        CommanderFeatureGate.UnlockAdvancedFeatures();
+        if (IsActive)
+        {
+            ActivateAdvancedServices();
+            if (overlayUi?.ShowTacticalMapUi == true)
+            {
+                tacticalMapService?.Open();
+            }
+        }
+        CommanderPlugin.Log.LogWarning(
+            $"Advanced Commander features manually unlocked for mission '{CommanderFeatureGate.MissionName}'.");
+    }
+
+    private void ActivateAdvancedServices()
+    {
         radarService?.Activate();
         mobileEmplacementService?.Activate();
         supplyHeliService?.Activate();
         airCommandService?.Activate();
+        navalPurchaseService?.Activate();
+        samSiteAnalyzerService?.Activate();
         spawnService?.Activate();
-        overlayUi?.Activate();
-        if (!string.IsNullOrEmpty(cameraController.MissingBindingWarning))
-        {
-            overlayUi?.ShowCameraBindingWarning(cameraController.MissingBindingWarning);
-        }
-        if (overlayUi?.ShowTacticalMapUi == true)
-        {
-            tacticalMapService?.Open();
-        }
-        CommanderPlugin.Log.LogInfo("Commander mode enabled.");
     }
 
     private void Deactivate(bool restorePreviousCamera = true)
@@ -250,6 +316,8 @@ internal sealed class CommanderModeController : MonoBehaviour
         directPathService?.Deactivate();
         supplyHeliService?.Deactivate();
         airCommandService?.Deactivate();
+        navalPurchaseService?.Deactivate();
+        samSiteAnalyzerService?.Deactivate();
         spawnService?.Deactivate();
         overlayUi?.Deactivate();
         tacticalMapService?.Close();
@@ -258,9 +326,17 @@ internal sealed class CommanderModeController : MonoBehaviour
         CommanderPlugin.Log.LogInfo("Commander mode disabled.");
     }
 
+    private static bool IsPlayerInOperationalAircraft()
+    {
+        return GameManager.GetLocalAircraft(out Aircraft aircraft)
+            && aircraft != null
+            && !aircraft.disabled;
+    }
+
     private void OnActiveSceneChanged(Scene previousScene, Scene newScene)
     {
         Deactivate(restorePreviousCamera: false);
+        CommanderFeatureGate.ResetSession();
         selectionService?.ResetSession();
         cameraFollowService?.Disable();
         tacticalMapService?.ResetSession();
@@ -270,6 +346,9 @@ internal sealed class CommanderModeController : MonoBehaviour
         repairService?.ResetSession();
         supplyHeliService?.ResetSession();
         airCommandService?.ResetSession();
+        navalPurchaseService?.ResetSession();
+        samSiteService?.ResetSession();
+        samSiteAnalyzerService?.ResetSession();
         aircraftSelectionMenuPresent = false;
         nextInactiveEntryProbeAt = 0f;
         factionVehicleService?.ResetSession();

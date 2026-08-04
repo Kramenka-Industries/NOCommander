@@ -9,13 +9,16 @@ internal sealed class CommanderSelectionService
     private readonly List<Unit> selectedUnits = new();
     private readonly List<Unit> pinnedUnits = new();
     private readonly List<Unit> missionUnits = new();
+    private readonly List<Unit> samSiteUnits = new();
     private readonly Dictionary<Unit, MissionPinInfo> missionInfo = new();
+    private readonly Dictionary<Unit, string> samSiteLabels = new();
     private DynamicMap? boundMap;
     private Unit? commanderDetailUnit;
 
     internal IReadOnlyList<Unit> SelectedUnits => selectedUnits;
     internal IReadOnlyList<Unit> PinnedUnits => pinnedUnits;
     internal IReadOnlyList<Unit> MissionUnits => missionUnits;
+    internal IReadOnlyList<Unit> SamSiteUnits => samSiteUnits;
     internal static CommanderSelectionService? Instance { get; private set; }
 
     private readonly List<Unit>[] controlGroups = new List<Unit>[9];
@@ -58,7 +61,9 @@ internal sealed class CommanderSelectionService
         DeselectAll();
         pinnedUnits.Clear();
         missionUnits.Clear();
+        samSiteUnits.Clear();
         missionInfo.Clear();
+        samSiteLabels.Clear();
         UnbindMap();
     }
 
@@ -73,7 +78,9 @@ internal sealed class CommanderSelectionService
 
             for (int i = 0; i < selectedUnits.Count; i++)
             {
-                if (!pinnedUnits.Contains(selectedUnits[i]) && !missionUnits.Contains(selectedUnits[i]))
+                if (!pinnedUnits.Contains(selectedUnits[i])
+                    && !missionUnits.Contains(selectedUnits[i])
+                    && !samSiteUnits.Contains(selectedUnits[i]))
                 {
                     return false;
                 }
@@ -119,7 +126,9 @@ internal sealed class CommanderSelectionService
             {
                 pinnedUnits.Remove(unit);
                 missionUnits.Remove(unit);
+                samSiteUnits.Remove(unit);
                 missionInfo.Remove(unit);
+                samSiteLabels.Remove(unit);
             }
             else if (!pinnedUnits.Contains(unit))
             {
@@ -147,6 +156,8 @@ internal sealed class CommanderSelectionService
         pinnedUnits.Remove(unit);
         missionUnits.Remove(unit);
         missionInfo.Remove(unit);
+        samSiteUnits.Remove(unit);
+        samSiteLabels.Remove(unit);
     }
 
     internal static void PinMissionUnit(Unit unit, string source, string mission)
@@ -158,9 +169,44 @@ internal sealed class CommanderSelectionService
         if (!Instance.missionUnits.Contains(unit))
         {
             Instance.pinnedUnits.Remove(unit);
+            Instance.samSiteUnits.Remove(unit);
+            Instance.samSiteLabels.Remove(unit);
             Instance.missionUnits.Add(unit);
         }
         Instance.missionInfo[unit] = new MissionPinInfo(source, mission);
+    }
+
+    internal static void PinSamSiteUnit(Unit unit, string label)
+    {
+        if (Instance == null || unit == null || unit.disabled)
+        {
+            return;
+        }
+
+        Instance.pinnedUnits.Remove(unit);
+        Instance.missionUnits.Remove(unit);
+        Instance.missionInfo.Remove(unit);
+        if (!Instance.samSiteUnits.Contains(unit))
+        {
+            Instance.samSiteUnits.Add(unit);
+        }
+        Instance.samSiteLabels[unit] = label;
+    }
+
+    internal static void RemoveSamSiteUnit(Unit? unit)
+    {
+        if (Instance == null || unit == null)
+        {
+            return;
+        }
+
+        Instance.samSiteUnits.Remove(unit);
+        Instance.samSiteLabels.Remove(unit);
+    }
+
+    internal string GetSamSiteLabel(Unit unit)
+    {
+        return samSiteLabels.TryGetValue(unit, out string label) ? label : "SAM SITE";
     }
 
     internal MissionPinInfo GetMissionInfo(Unit unit)
@@ -189,7 +235,9 @@ internal sealed class CommanderSelectionService
 
             pinnedUnits.Remove(unit);
             missionUnits.Remove(unit);
+            samSiteUnits.Remove(unit);
             missionInfo.Remove(unit);
+            samSiteLabels.Remove(unit);
             unit.DisableUnit();
         }
     }
@@ -201,6 +249,7 @@ internal sealed class CommanderSelectionService
 
     internal void SelectUnit(Unit unit, bool additive)
     {
+        unit = CommanderSamSiteCoreRegistry.ResolveSelection(unit) ?? unit;
         FactionHQ? localHq = CommanderGameAccess.GetLocalHq();
         if (!CommanderGameAccess.ShouldAllowCommanderSelection(unit, localHq))
         {
@@ -304,6 +353,7 @@ internal sealed class CommanderSelectionService
     {
         SceneSingleton<DynamicMap>.i?.DeselectAllIcons();
         selectedUnits.Clear();
+        NotifyCoverageSelectionChanged();
         SyncDetailUi();
     }
 
@@ -338,6 +388,14 @@ internal sealed class CommanderSelectionService
 
     private void OnUnitSelected(Unit unit)
     {
+        Unit resolvedUnit = CommanderSamSiteCoreRegistry.ResolveSelection(unit) ?? unit;
+        if (!ReferenceEquals(resolvedUnit, unit))
+        {
+            boundMap?.DeselectIcon(unit);
+            boundMap?.SelectIcon(resolvedUnit);
+            return;
+        }
+
         FactionHQ? localHq = CommanderGameAccess.GetLocalHq();
         if (!CommanderGameAccess.ShouldAllowCommanderSelection(unit, localHq))
         {
@@ -349,30 +407,45 @@ internal sealed class CommanderSelectionService
             selectedUnits.Add(unit);
         }
 
+        NotifyCoverageSelectionChanged();
         SyncDetailUi();
     }
 
     private void OnUnitDeselected(Unit unit)
     {
         selectedUnits.Remove(unit);
+        NotifyCoverageSelectionChanged();
         SyncDetailUi();
     }
 
     private void OnAllDeselected()
     {
         selectedUnits.Clear();
+        NotifyCoverageSelectionChanged();
         SyncDetailUi();
+    }
+
+    private void NotifyCoverageSelectionChanged()
+    {
+        CommanderSamSiteAnalyzerService.Instance?.RetainCoverageForSelection(selectedUnits);
     }
 
     private void PruneDisabledUnits()
     {
+        bool selectionChanged = false;
         for (int i = selectedUnits.Count - 1; i >= 0; i--)
         {
             Unit unit = selectedUnits[i];
             if (unit == null || unit.disabled)
             {
                 selectedUnits.RemoveAt(i);
+                selectionChanged = true;
             }
+        }
+
+        if (selectionChanged)
+        {
+            NotifyCoverageSelectionChanged();
         }
 
         for (int i = pinnedUnits.Count - 1; i >= 0; i--)
@@ -393,6 +466,19 @@ internal sealed class CommanderSelectionService
                 if (!ReferenceEquals(unit, null))
                 {
                     missionInfo.Remove(unit);
+                }
+            }
+        }
+
+        for (int i = samSiteUnits.Count - 1; i >= 0; i--)
+        {
+            Unit unit = samSiteUnits[i];
+            if (unit == null || unit.disabled)
+            {
+                samSiteUnits.RemoveAt(i);
+                if (!ReferenceEquals(unit, null))
+                {
+                    samSiteLabels.Remove(unit);
                 }
             }
         }

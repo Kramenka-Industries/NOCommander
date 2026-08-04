@@ -1,6 +1,8 @@
 using System.Reflection;
 using HarmonyLib;
+using NuclearOption.Networking;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace NuclearOptionCommander;
 
@@ -26,6 +28,11 @@ internal sealed class CommanderTacticalMapService
     private bool virtualMfdWasActive;
     private bool restoreTacticalAfterFullscreen;
     private int suppressExtraUiFrame = -1;
+    private float lastAppliedUiScale = -1f;
+    private Vector2 lastAppliedMapPosition = new(float.NaN, float.NaN);
+    private RawImage? coverageMapLayer;
+    private Image? coverageOriginMarker;
+    private GameObject? coverageLayerObject;
 
     internal static CommanderTacticalMapService? Instance { get; private set; }
     internal static bool AllowCommanderMapJump { get; private set; }
@@ -103,6 +110,7 @@ internal sealed class CommanderTacticalMapService
         EnsureInitialPosition();
         ApplyLayout();
         HideFullMapPanels();
+        SyncCoverageLayer();
         return true;
     }
 
@@ -132,6 +140,17 @@ internal sealed class CommanderTacticalMapService
         return DynamicMap.mapMaximized;
     }
 
+    internal bool ShowCoverageFullscreen()
+    {
+        if (!OpenFullscreen())
+        {
+            return false;
+        }
+
+        SyncCoverageLayer();
+        return true;
+    }
+
     internal void Close()
     {
         DynamicMap? dynamicMap = activeMap ?? SceneSingleton<DynamicMap>.i;
@@ -149,6 +168,7 @@ internal sealed class CommanderTacticalMapService
         activeMap = null;
         cameraJumpTracker.Reset();
         restoreTacticalAfterFullscreen = false;
+        HideCoverageLayer();
     }
 
     internal void CloseFullscreen()
@@ -164,6 +184,7 @@ internal sealed class CommanderTacticalMapService
         tacticalOpen = false;
         SuppressMapFollow = false;
         activeMap = null;
+        HideCoverageLayer();
     }
 
     internal void Tick()
@@ -198,8 +219,13 @@ internal sealed class CommanderTacticalMapService
         mapWindowRect.width = TacticalMapSize;
         mapWindowRect.height = TacticalMapSize + HeaderHeight;
         mapWindowRect = CommanderUiTheme.ClampWindow(mapWindowRect, TacticalMapMargin);
-        ApplyLayout();
+        if (!Mathf.Approximately(lastAppliedUiScale, CommanderUiScale.Scale)
+            || lastAppliedMapPosition != mapWindowRect.position)
+        {
+            ApplyLayout();
+        }
         HideFullMapPanels();
+        SyncCoverageLayer();
 
         if (!SuppressMapFollow && cameraJumpTracker.Tick(activeMap, out GlobalPosition position))
         {
@@ -225,11 +251,11 @@ internal sealed class CommanderTacticalMapService
 
         Rect header = new(mapWindowRect.x, mapWindowRect.y, mapWindowRect.width, HeaderHeight);
         GUI.Box(header, string.Empty, CommanderUiTheme.Panel);
-        GUI.Label(new Rect(header.x + 10f, header.y + 3f, 82f, 24f), "MAP", CommanderUiTheme.Header);
-        Rect cameraGroup = new(header.x + 96f, header.y + 2f, 514f, 26f);
+        GUI.Label(new Rect(header.x + 10f, header.y + 3f, 42f, 24f), "MAP", CommanderUiTheme.Header);
+        bool oldEnabled = GUI.enabled;
+        Rect cameraGroup = new(header.xMax - 452f, header.y + 2f, 384f, 26f);
         CommanderUiTheme.DrawFrame(cameraGroup, 1f);
         GUI.Label(new Rect(cameraGroup.x + 4f, cameraGroup.y + 1f, 38f, 24f), "CAM", CommanderUiTheme.MutedLabel);
-        bool oldEnabled = GUI.enabled;
         GUI.enabled = oldEnabled && cameraFollowService.CanFollow;
         if (GUI.Button(new Rect(cameraGroup.x + 42f, cameraGroup.y + 2f, 104f, 22f),
             cameraFollowService.Enabled ? "FOLLOW POS" : "FOLLOW",
@@ -237,17 +263,11 @@ internal sealed class CommanderTacticalMapService
         {
             cameraFollowService.Toggle();
         }
-        if (GUI.Button(new Rect(cameraGroup.x + 150f, cameraGroup.y + 2f, 96f, 22f), "CENTER", CommanderUiTheme.Button))
+        if (GUI.Button(new Rect(cameraGroup.x + 150f, cameraGroup.y + 2f, 104f, 22f), "CENTER", CommanderUiTheme.Button))
         {
             cameraFollowService.CenterOnSelection();
         }
-        if (GUI.Button(new Rect(cameraGroup.x + 250f, cameraGroup.y + 2f, 126f, 22f),
-            cameraFollowService.FollowRotation ? "FOLLOW ROT ON" : "FOLLOW ROT",
-            cameraFollowService.FollowRotation ? CommanderUiTheme.SelectedButton : CommanderUiTheme.Button))
-        {
-            cameraFollowService.ToggleRotation();
-        }
-        if (GUI.Button(new Rect(cameraGroup.x + 380f, cameraGroup.y + 2f, 128f, 22f),
+        if (GUI.Button(new Rect(cameraGroup.x + 258f, cameraGroup.y + 2f, 104f, 22f),
             cameraFollowService.PovMode ? "POV ON" : "POV",
             cameraFollowService.PovMode ? CommanderUiTheme.SelectedButton : CommanderUiTheme.Button))
         {
@@ -270,7 +290,7 @@ internal sealed class CommanderTacticalMapService
         {
             CommanderUiTheme.DrawHelpOverlay(
                 new Rect(mapRect.x + 10f, mapRect.y + 10f, mapRect.width - 20f, 82f),
-                "LMB selects map icons or moves the free camera when terrain is empty; RMB issues Basegame orders. FOLLOW tracks position, CENTER jumps once, FOLLOW ROT tracks orientation, and POV uses a fixed local view. M opens the fullscreen map and restores this map when closed.");
+                "LMB selects map icons or moves the free camera when terrain is empty; RMB issues Basegame orders. FOLLOW tracks position, CENTER jumps once, and POV provides a movable view attached to the unit. M opens the fullscreen map and restores this map when closed. Radar coverage is generated from Unit Systems.");
         }
 
         HandleDrag(new Rect(header.x, header.y, header.width - 66f, header.height));
@@ -288,6 +308,9 @@ internal sealed class CommanderTacticalMapService
         cameraJumpTracker.Reset();
         restoreTacticalAfterFullscreen = false;
         suppressExtraUiFrame = -1;
+        lastAppliedUiScale = -1f;
+        lastAppliedMapPosition = new Vector2(float.NaN, float.NaN);
+        DestroyCoverageLayer();
     }
 
     internal void ResetLayoutPosition()
@@ -297,6 +320,26 @@ internal sealed class CommanderTacticalMapService
         {
             EnsureInitialPosition();
             ApplyLayout();
+        }
+    }
+
+    internal bool JumpCameraToPosition(GlobalPosition position)
+    {
+        DynamicMap? dynamicMap = activeMap ?? SceneSingleton<DynamicMap>.i;
+        if (dynamicMap == null || JumpCameraToMethod == null)
+        {
+            return false;
+        }
+
+        AllowCommanderMapJump = true;
+        try
+        {
+            JumpCameraToMethod.Invoke(dynamicMap, new object[] { position });
+            return true;
+        }
+        finally
+        {
+            AllowCommanderMapJump = false;
         }
     }
 
@@ -328,6 +371,105 @@ internal sealed class CommanderTacticalMapService
         return new Rect(mapWindowRect.x, mapWindowRect.y + HeaderHeight, TacticalMapSize, TacticalMapSize);
     }
 
+    private void SyncCoverageLayer()
+    {
+        CommanderSamSiteAnalyzerService? analyzer = CommanderSamSiteAnalyzerService.Instance;
+        Texture2D? texture = analyzer?.CoverageOverlayTexture;
+        if (activeMap == null
+            || analyzer?.CoverageOverlayEnabled != true
+            || texture == null)
+        {
+            HideCoverageLayer();
+            return;
+        }
+
+        EnsureCoverageLayer(activeMap);
+        if (coverageMapLayer == null || coverageOriginMarker == null || coverageLayerObject == null)
+        {
+            return;
+        }
+
+        bool textureChanged = coverageMapLayer.texture != texture;
+        if (textureChanged)
+        {
+            coverageMapLayer.texture = texture;
+        }
+        GlobalPosition origin = analyzer.CoverageOverlayOrigin;
+        Vector2 mapSize = NetworkSceneSingleton<LevelInfo>.i?.LoadedMapSettings?.MapSize
+            ?? new Vector2(81920f, 81920f);
+        Vector2 anchor = new(
+            Mathf.Clamp01(origin.x / Mathf.Max(mapSize.x, 1f) + 0.5f),
+            Mathf.Clamp01(origin.z / Mathf.Max(mapSize.y, 1f) + 0.5f));
+        RectTransform markerTransform = coverageOriginMarker.rectTransform;
+        markerTransform.anchorMin = anchor;
+        markerTransform.anchorMax = anchor;
+        markerTransform.anchoredPosition = Vector2.zero;
+        bool wasHidden = !coverageLayerObject.activeSelf;
+        coverageLayerObject.SetActive(true);
+        if (textureChanged || wasHidden)
+        {
+            coverageMapLayer.SetAllDirty();
+        }
+    }
+
+    private void EnsureCoverageLayer(DynamicMap dynamicMap)
+    {
+        Transform parent = dynamicMap.mapImage.transform;
+        if (coverageLayerObject != null && coverageLayerObject.transform.parent == parent)
+        {
+            return;
+        }
+
+        DestroyCoverageLayer();
+        coverageLayerObject = new GameObject(
+            "NOCommander SAM Coverage",
+            typeof(RectTransform),
+            typeof(CanvasRenderer),
+            typeof(RawImage));
+        RectTransform layerTransform = coverageLayerObject.GetComponent<RectTransform>();
+        layerTransform.SetParent(parent, false);
+        layerTransform.anchorMin = Vector2.zero;
+        layerTransform.anchorMax = Vector2.one;
+        layerTransform.offsetMin = Vector2.zero;
+        layerTransform.offsetMax = Vector2.zero;
+        layerTransform.localRotation = Quaternion.identity;
+        layerTransform.localScale = Vector3.one;
+        coverageMapLayer = coverageLayerObject.GetComponent<RawImage>();
+        coverageMapLayer.raycastTarget = false;
+        coverageMapLayer.color = Color.white;
+
+        GameObject markerObject = new(
+            "NOCommander SAM Coverage Origin",
+            typeof(RectTransform),
+            typeof(CanvasRenderer),
+            typeof(Image));
+        RectTransform markerTransform = markerObject.GetComponent<RectTransform>();
+        markerTransform.SetParent(layerTransform, false);
+        markerTransform.sizeDelta = new Vector2(6f, 6f);
+        coverageOriginMarker = markerObject.GetComponent<Image>();
+        coverageOriginMarker.raycastTarget = false;
+        coverageOriginMarker.color = new Color(0.15f, 0.9f, 1f, 0.95f);
+    }
+
+    private void HideCoverageLayer()
+    {
+        if (coverageLayerObject != null)
+        {
+            coverageLayerObject.SetActive(false);
+        }
+    }
+
+    private void DestroyCoverageLayer()
+    {
+        if (coverageLayerObject != null)
+        {
+            UnityEngine.Object.Destroy(coverageLayerObject);
+        }
+        coverageLayerObject = null;
+        coverageMapLayer = null;
+        coverageOriginMarker = null;
+    }
+
     private void ApplyLayout()
     {
         if (activeMap == null)
@@ -352,6 +494,8 @@ internal sealed class CommanderTacticalMapService
             screenCenter.x,
             screenCenter.y,
             rectTransform.position.z);
+        lastAppliedUiScale = CommanderUiScale.Scale;
+        lastAppliedMapPosition = mapWindowRect.position;
     }
 
     private void HandleDrag(Rect dragRect)
@@ -378,20 +522,7 @@ internal sealed class CommanderTacticalMapService
 
     private void JumpCameraTo(GlobalPosition position)
     {
-        if (activeMap == null || JumpCameraToMethod == null)
-        {
-            return;
-        }
-
-        AllowCommanderMapJump = true;
-        try
-        {
-            JumpCameraToMethod.Invoke(activeMap, new object[] { position });
-        }
-        finally
-        {
-            AllowCommanderMapJump = false;
-        }
+        JumpCameraToPosition(position);
     }
 
     private static void RestoreScale(DynamicMap? dynamicMap)

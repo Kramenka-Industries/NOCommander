@@ -76,10 +76,10 @@ internal static class CommanderGameAccess
 
         if (IsFriendlyUnit(unit, localHq))
         {
-            return unit is GroundVehicle || unit is Ship || unit is Aircraft || unit is Missile || HasFriendlyDepot(unit, localHq);
+            return IsCommanderMarkerUnit(unit, localHq);
         }
 
-        if (unit is not GroundVehicle && unit is not Ship && unit is not Aircraft && unit is not Missile)
+        if (!IsCommanderMarkerUnit(unit, localHq))
         {
             return false;
         }
@@ -90,18 +90,61 @@ internal static class CommanderGameAccess
 
     internal static bool ShouldAllowCommanderSelection(Unit? unit, FactionHQ? localHq)
     {
-        if (IsFriendlyUnit(unit, localHq))
+        if (unit == null || unit.disabled || localHq == null)
         {
-            return unit is GroundVehicle || unit is Ship || unit is Aircraft || unit is Missile || HasFriendlyDepot(unit, localHq);
+            return false;
         }
 
-        if (unit == null || unit.disabled || localHq == null)
+        if (IsFriendlyUnit(unit, localHq))
+        {
+            return IsCommanderMarkerUnit(unit, localHq);
+        }
+
+        if (!IsCommanderMarkerUnit(unit, localHq))
         {
             return false;
         }
 
         TrackingInfo? tracking = localHq.GetTrackingData(unit.persistentID);
         return tracking != null && Time.timeSinceLevelLoad - tracking.lastSpottedTime <= 8f;
+    }
+
+    internal static bool ShouldRetainCommanderMarker(Unit? unit, FactionHQ? localHq)
+    {
+        if (unit == null || unit.disabled || localHq == null)
+        {
+            return false;
+        }
+
+        if (IsFriendlyUnit(unit, localHq))
+        {
+            return true;
+        }
+
+        TrackingInfo? tracking = localHq.GetTrackingData(unit.persistentID);
+        return tracking != null && Time.timeSinceLevelLoad - tracking.lastSpottedTime <= 8f;
+    }
+
+    private static bool IsCommanderMarkerUnit(Unit unit, FactionHQ localHq)
+    {
+        if (unit is GroundVehicle || unit is Ship || unit is Aircraft || unit is Missile)
+        {
+            return true;
+        }
+
+        if (HasFriendlyDepot(unit, localHq)
+            || CommanderSamSiteCoreRegistry.IsTrackedSiteUnit(unit))
+        {
+            return true;
+        }
+
+        if (unit is not Building || unit.GetComponent<Factory>() != null)
+        {
+            return false;
+        }
+
+        return unit.weaponStations.Count > 0
+            || unit.GetComponentInChildren<Rearmer>(true) != null;
     }
 
     internal static bool HasFriendlyDepot(Unit? unit, FactionHQ? localHq)
@@ -270,6 +313,7 @@ internal static class CommanderGameAccess
             {
                 hitUnit = hits[i].collider.GetComponentInParent<UnitPart>()?.parentUnit;
             }
+            hitUnit = CommanderSamSiteCoreRegistry.ResolveSelection(hitUnit);
             if (ShouldAllowCommanderSelection(hitUnit, localHq))
             {
                 unit = hitUnit!;
@@ -323,7 +367,8 @@ internal static class CommanderGameAccess
         FactionHQ? localHq = GetLocalHq();
         return IsFriendlyUnit(unit, localHq)
             && (unit is GroundVehicle || unit is Ship)
-            && !CommanderMobileEmplacementService.IsReservedHauler(unit);
+            && !CommanderMobileEmplacementService.IsReservedHauler(unit)
+            && !CommanderSamSiteService.IsReservedConstructionJacknife(unit);
     }
 
     internal static bool IsFriendlyDepot(VehicleDepot? depot)

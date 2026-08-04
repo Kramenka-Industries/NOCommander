@@ -1,5 +1,3 @@
-using Rewired;
-
 namespace NuclearOptionCommander;
 
 internal sealed class CommanderCameraController
@@ -8,7 +6,7 @@ internal sealed class CommanderCameraController
     private CameraStateManager? activeManager;
     private bool active;
 
-    internal string MissingBindingWarning { get; private set; } = string.Empty;
+    internal static bool CustomInputActive { get; private set; }
 
     internal bool TryActivate()
     {
@@ -26,12 +24,19 @@ internal sealed class CommanderCameraController
         }
 
         active = true;
-        DetectMissingBindings();
+        CommanderFreeCameraInputPatch.ResetCustomMotion();
+        CustomInputActive = true;
         return true;
     }
 
     internal void Deactivate(bool restorePreviousState = true)
     {
+        CustomInputActive = false;
+        CommanderFreeCameraInputPatch.ResetCustomMotion();
+        if (activeManager != null)
+        {
+            activeManager.cameraVelocity = UnityEngine.Vector3.zero;
+        }
         if (!active)
         {
             return;
@@ -50,60 +55,5 @@ internal sealed class CommanderCameraController
         activeManager = null;
         previousState = null;
         active = false;
-    }
-
-    private void DetectMissingBindings()
-    {
-        Player? player = GameManager.playerInput;
-        if (player == null)
-        {
-            MissingBindingWarning = string.Empty;
-            return;
-        }
-
-        bool missingForward = !HasKeyboardPole(player, "Move Longitudinal", Pole.Positive);
-        bool missingBackward = !HasKeyboardPole(player, "Move Longitudinal", Pole.Negative);
-        bool missingFreeLook = !HasBinding(player, "Free Look", ControllerType.Keyboard)
-            && !HasBinding(player, "Free Look", ControllerType.Mouse);
-
-        string missing = string.Empty;
-        if (missingForward) missing = "Move Longitudinal: Forward";
-        if (missingBackward) missing += (missing.Length > 0 ? ", " : string.Empty) + "Move Longitudinal: Backward";
-        if (missingFreeLook) missing += (missing.Length > 0 ? ", " : string.Empty) + "Free Look";
-        MissingBindingWarning = missing;
-
-    }
-
-    private static bool HasKeyboardPole(Player? player, string action, Pole pole)
-    {
-        if (player == null)
-        {
-            return false;
-        }
-
-        foreach (ActionElementMap map in player.controllers.maps.ElementMapsWithAction(
-            ControllerType.Keyboard, action, false))
-        {
-            if (map.axisContribution == pole)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static bool HasBinding(Player? player, string action, ControllerType controllerType)
-    {
-        if (player == null)
-        {
-            return false;
-        }
-
-        foreach (ActionElementMap map in player.controllers.maps.ElementMapsWithAction(
-            controllerType, action, false))
-        {
-            return true;
-        }
-        return false;
     }
 }

@@ -1,3 +1,5 @@
+using HarmonyLib;
+using System.Reflection;
 using UnityEngine;
 using System.Collections.Generic;
 using NuclearOption.Networking;
@@ -6,6 +8,12 @@ namespace NuclearOptionCommander;
 
 internal sealed class CommanderMoveService
 {
+    private const float GroundFormationSpacingMeters = 25f;
+    private const float ShipFormationSpacingMeters = 80f;
+
+    private static readonly MethodInfo? RearmVehicleWaitMethod = AccessTools.Method(typeof(RearmVehicleAI), "Wait");
+    private static readonly MethodInfo? RearmVehicleRestockMethod = AccessTools.Method(typeof(RearmVehicleAI), "DriveToRestock");
+
     private readonly CommanderSelectionService selectionService;
     private readonly HashSet<Unit> stoppedUnits = new();
     private readonly Dictionary<Unit, GlobalPosition> playerDestinations = new();
@@ -55,6 +63,8 @@ internal sealed class CommanderMoveService
         float spacing = CommanderSettings.MoveSpacing;
         int assignedIndex = 0;
 
+        int groundSlot = 0;
+        int shipSlot = 0;
         for (int i = 0; i < selectionService.SelectedUnits.Count; i++)
         {
             Unit unit = selectionService.SelectedUnits[i];
@@ -67,12 +77,18 @@ internal sealed class CommanderMoveService
             if (unit is Ship)
             {
                 if (!hasWaterDestination) continue;
-                destination = waterDestination;
+                destination = CommanderDestinationFormation.ApplyOffset(
+                    waterDestination,
+                    shipSlot++,
+                    ShipFormationSpacingMeters);
             }
             else
             {
                 if (!hasGroundDestination) continue;
-                destination = groundDestination;
+                destination = CommanderDestinationFormation.ApplyOffset(
+                    groundDestination,
+                    groundSlot++,
+                    GroundFormationSpacingMeters);
             }
 
             if (commandableCount > 1)
@@ -187,11 +203,56 @@ internal sealed class CommanderMoveService
             CommanderGameAccess.SetUnitHoldPosition(unit, false);
             stoppedUnits.Remove(unit);
             playerDestinations.Remove(unit);
+            if (TryReturnToBasegameLogistics(unit))
+            {
+                continue;
+            }
             if (MissionPosition.TryGetClosestPosition(unit, out GlobalPosition destination))
             {
                 CommanderGameAccess.GetUnitCommand(unit)?.SetDestination(destination, false);
             }
         }
+    }
+
+    private static bool TryReturnToBasegameLogistics(Unit unit)
+    {
+        if (!unit.TryGetComponent(out RearmVehicleAI rearmAi)
+            || !unit.TryGetComponent(out Rearmer rearmer))
+        {
+            return false;
+        }
+
+        RearmMissionController? controller = unit.NetworkHQ?.RearmMissionController;
+        if (controller != null)
+        {
+            for (int i = controller.Missions.Count - 1; i >= 0; i--)
+            {
+                RearmMissionController.RearmMission mission = controller.Missions[i];
+                if (ReferenceEquals(mission.Rearmer, rearmer))
+                {
+                    mission.AssignRearmer(null);
+                }
+            }
+        }
+
+        rearmAi.AssignMission(null!);
+        bool needsRestock = rearmer.GetMaxCapacity() > 0f
+            && rearmer.Capacity < rearmer.GetMaxCapacity() * 0.5f;
+        MethodInfo? stateMethod = needsRestock ? RearmVehicleRestockMethod : RearmVehicleWaitMethod;
+        try
+        {
+            stateMethod?.Invoke(rearmAi, null);
+        }
+        catch (System.Exception exception)
+        {
+            CommanderPlugin.Log.LogWarning($"Failed to return {unit.unitName} to Basegame rearm AI: {exception.Message}");
+            if (unit is GroundVehicle vehicle)
+            {
+                vehicle.StopImmediately();
+            }
+            rearmer.AvailableForMission = !needsRestock;
+        }
+        return true;
     }
 
     internal bool TryGetPlayerDestination(Unit unit, out GlobalPosition destination)

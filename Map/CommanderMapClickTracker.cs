@@ -13,13 +13,13 @@ internal sealed class CommanderMapClickTracker
     {
         position = default;
 
-        if (CommanderSettings.PrimaryAction.IsDown() && dynamicMap.IsCursorInMapRectangle())
+        if (CommanderShortcutInput.IsDown(CommanderSettings.PrimaryAction) && dynamicMap.IsCursorInMapRectangle())
         {
             pressed = true;
             pressPosition = Input.mousePosition;
         }
 
-        if (!pressed || !CommanderSettings.PrimaryAction.IsUp())
+        if (!pressed || !CommanderShortcutInput.IsUp(CommanderSettings.PrimaryAction))
         {
             return false;
         }

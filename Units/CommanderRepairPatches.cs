@@ -16,6 +16,13 @@ internal static class CommanderRepairPatches
     private static bool SearchForRepairPrefix(Repairer __instance)
     {
         Unit? repairerUnit = AttachedUnitField?.GetValue(__instance) as Unit;
+        if (CommanderSamSiteService.IsReservedConstructionJacknife(repairerUnit))
+        {
+            UnitToRepairField?.SetValue(__instance, null);
+            RepairInProgressField?.SetValue(__instance, null);
+            return false;
+        }
+
         if (repairerUnit == null
             || CommanderRepairService.Instance?.ShouldUseNearestTarget(repairerUnit) != true
             || LastRepairCheckField == null

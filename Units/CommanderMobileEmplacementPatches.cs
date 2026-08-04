@@ -7,6 +7,7 @@ internal static class CommanderMobileEmplacementDestinationPatch
 {
     private static bool Prefix(UnitCommand __instance)
     {
-        return !CommanderMobileEmplacementService.ShouldBlockDestination(__instance);
+        return !CommanderMobileEmplacementService.ShouldBlockDestination(__instance)
+            && !CommanderSamSiteService.ShouldBlockConstructionDestination(__instance);
     }
 }

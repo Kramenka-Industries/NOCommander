@@ -191,13 +191,14 @@ internal sealed class CommanderMarkerService
         unitsToRemove.Clear();
         foreach (KeyValuePair<Unit, CommanderMarkerView> pair in markerViews)
         {
-            if (pair.Key.disabled || !CommanderGameAccess.ShouldTrackUnit(pair.Key, boundHq))
+            if (!CommanderGameAccess.ShouldRetainCommanderMarker(pair.Key, boundHq))
             {
                 unitsToRemove.Add(pair.Key);
                 continue;
             }
 
-            pair.Value.Update(camera, selectionService.IsSelected(pair.Key));
+            Unit selectedUnit = CommanderSamSiteCoreRegistry.ResolveSelection(pair.Key) ?? pair.Key;
+            pair.Value.Update(camera, selectionService.IsSelected(selectedUnit));
         }
 
         for (int i = 0; i < unitsToRemove.Count; i++)
@@ -277,7 +278,7 @@ internal sealed class CommanderMarkerService
             if (hitDistance < nearestDistance)
             {
                 nearestDistance = hitDistance;
-                unit = pair.Key;
+                unit = CommanderSamSiteCoreRegistry.ResolveSelection(pair.Key) ?? pair.Key;
             }
         }
 

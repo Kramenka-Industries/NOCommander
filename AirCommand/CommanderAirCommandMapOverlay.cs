@@ -12,7 +12,20 @@ internal sealed partial class CommanderAirCommandService
 
     private void UpdatePendingAreaPreview()
     {
-        if (pendingAreaSelection == null)
+        AirCommandMode mode;
+        float radius;
+        if (pendingAreaSelection != null)
+        {
+            mode = pendingAreaSelection.Option.Mode;
+            radius = GetMissionRadius(mode);
+        }
+        else if (pendingMissionRelocation != null
+            && missions.TryGetValue(pendingMissionRelocation, out AirMission relocationMission))
+        {
+            mode = relocationMission.Mode;
+            radius = relocationMission.Radius;
+        }
+        else
         {
             DestroyPendingAreaPreview();
             return;
@@ -29,8 +42,8 @@ internal sealed partial class CommanderAirCommandService
             pendingAreaPreview,
             map,
             position,
-            GetMissionRadius(pendingAreaSelection.Option.Mode),
-            GetMissionAreaColor(pendingAreaSelection.Option.Mode),
+            radius,
+            GetMissionAreaColor(mode),
             "Commander Air Mission Preview");
         if (pendingAreaPreview != null) pendingAreaPreview.SetActive(true);
     }
@@ -80,6 +93,12 @@ internal sealed partial class CommanderAirCommandService
         DestroyMissionMapVisual(mission);
         missions.Remove(aircraft);
         if (ReferenceEquals(selectedMissionAircraft, aircraft)) selectedMissionAircraft = null;
+        if (ReferenceEquals(pendingMissionRelocation, aircraft))
+        {
+            pendingMissionRelocation = null;
+            DestroyPendingAreaPreview();
+            tacticalMapService.SuppressMapFollow = false;
+        }
     }
 
     private void ClearMissionMapVisuals()

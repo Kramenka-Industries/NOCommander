@@ -425,11 +425,34 @@ internal sealed class CommanderMobileEmplacementService
             return false;
         }
 
-        int stationCount = Mathf.Min(restored.weaponStations.Count, job.Ammo.Length);
+        int stationCount = Mathf.Min(restored.weaponStations.Count, job.WeaponAmmo.Length);
         for (int i = 0; i < stationCount; i++)
         {
-            restored.weaponStations[i].Ammo = Mathf.Clamp(job.Ammo[i], 0, restored.weaponStations[i].FullAmmo);
-            restored.weaponStations[i].Updated();
+            WeaponStation station = restored.weaponStations[i];
+            int[] savedAmmo = job.WeaponAmmo[i];
+            int weaponCount = Mathf.Min(station.Weapons.Count, savedAmmo.Length);
+            for (int weaponIndex = 0; weaponIndex < weaponCount; weaponIndex++)
+            {
+                Weapon weapon = station.Weapons[weaponIndex];
+                if (weapon != null)
+                {
+                    weapon.ammo = Mathf.Clamp(savedAmmo[weaponIndex], 0, weapon.GetFullAmmo());
+                }
+            }
+
+            station.AccountAmmo();
+            station.Updated();
+        }
+
+        Rearmer[] restoredRearmers = restored.GetComponentsInChildren<Rearmer>(true);
+        int rearmerCount = Mathf.Min(restoredRearmers.Length, job.RearmerCapacities.Length);
+        for (int i = 0; i < rearmerCount; i++)
+        {
+            Rearmer rearmer = restoredRearmers[i];
+            if (rearmer != null)
+            {
+                rearmer.SetCapacity(Mathf.Clamp(job.RearmerCapacities[i], 0f, rearmer.GetMaxCapacity()));
+            }
         }
 
         Radar[] radars = restored.GetComponentsInChildren<Radar>();
@@ -508,7 +531,8 @@ internal sealed class CommanderMobileEmplacementService
         internal float Skill { get; }
         internal RelocationStage Stage { get; set; }
         internal float StageCompleteAt { get; set; }
-        internal int[] Ammo { get; private set; } = Array.Empty<int>();
+        internal int[][] WeaponAmmo { get; private set; } = Array.Empty<int[]>();
+        internal float[] RearmerCapacities { get; private set; } = Array.Empty<float>();
         internal bool RadarOnline { get; private set; } = true;
         internal bool TrailerRemoved { get; set; }
 
@@ -519,10 +543,23 @@ internal sealed class CommanderMobileEmplacementService
                 return;
             }
 
-            Ammo = new int[Trailer.weaponStations.Count];
-            for (int i = 0; i < Ammo.Length; i++)
+            WeaponAmmo = new int[Trailer.weaponStations.Count][];
+            for (int i = 0; i < WeaponAmmo.Length; i++)
             {
-                Ammo[i] = Trailer.weaponStations[i].Ammo;
+                WeaponStation station = Trailer.weaponStations[i];
+                WeaponAmmo[i] = new int[station.Weapons.Count];
+                for (int weaponIndex = 0; weaponIndex < station.Weapons.Count; weaponIndex++)
+                {
+                    Weapon weapon = station.Weapons[weaponIndex];
+                    WeaponAmmo[i][weaponIndex] = weapon?.ammo ?? 0;
+                }
+            }
+
+            Rearmer[] rearmers = Trailer.GetComponentsInChildren<Rearmer>(true);
+            RearmerCapacities = new float[rearmers.Length];
+            for (int i = 0; i < rearmers.Length; i++)
+            {
+                RearmerCapacities[i] = rearmers[i]?.Capacity ?? 0f;
             }
 
             Radar[] radars = Trailer.GetComponentsInChildren<Radar>();

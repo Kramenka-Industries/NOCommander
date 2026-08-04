@@ -28,6 +28,20 @@ internal static class CommanderSupplyHeliPatches
         return !CommanderSupplyHeliService.TryOverrideTransportTarget(__instance);
     }
 
+    [HarmonyPatch(typeof(AIHeloTransportState), nameof(AIHeloTransportState.FixedUpdateState))]
+    [HarmonyPrefix]
+    private static void TransportFixedUpdatePrefix(AIHeloTransportState __instance)
+    {
+        CommanderSupplyHeliService.TryOverrideTransportTarget(__instance);
+    }
+
+    [HarmonyPatch(typeof(AIHeloTransportState), "EjectionCheck")]
+    [HarmonyPrefix]
+    private static bool EjectionCheckPrefix(AIHeloTransportState __instance)
+    {
+        return !CommanderSupplyHeliService.ShouldSuppressAssignedEjection(__instance);
+    }
+
     [HarmonyPatch(typeof(AIHeloTransportState), nameof(AIHeloTransportState.LeaveState))]
     [HarmonyPostfix]
     private static void LeaveStatePostfix(AIHeloTransportState __instance)
@@ -56,6 +70,27 @@ internal static class CommanderSupplyHeliPatches
         CommanderSupplyHeliService.NotifyAircraftReturned(__instance);
     }
 
+    [HarmonyPatch(typeof(AIHeloLandingState), nameof(AIHeloLandingState.EnterState))]
+    [HarmonyPostfix]
+    private static void HeloLandingEnterStatePostfix(AIHeloLandingState __instance)
+    {
+        CommanderSupplyHeliService.TryOverrideAssignedReturnAirbase(__instance);
+    }
+
+    [HarmonyPatch(typeof(AIHeloCombatState), nameof(AIHeloCombatState.EnterState))]
+    [HarmonyPostfix]
+    private static void HeloCombatEnterStatePostfix(AIHeloCombatState __instance)
+    {
+        CommanderSupplyHeliService.TryOverrideAssignedNearestAirbase(__instance);
+    }
+
+    [HarmonyPatch(typeof(PilotBaseState), "FindNearestAirbase")]
+    [HarmonyPostfix]
+    private static void FindNearestAirbasePostfix(PilotBaseState __instance)
+    {
+        CommanderSupplyHeliService.TryOverrideAssignedNearestAirbase(__instance);
+    }
+
     [HarmonyPatch(typeof(MountedCargo), nameof(MountedCargo.ActivateCargoVehicle))]
     [HarmonyPostfix]
     private static void ActivateCargoVehiclePostfix(
@@ -80,7 +115,10 @@ internal static class CommanderSupplyHeliPatches
         ref float altitudeHold,
         bool followTerrain)
     {
-        CommanderSupplyHeliService.RaiseAssignedTerrainClearance(__instance, ref altitudeHold, followTerrain);
+        CommanderSupplyHeliService.PrepareAssignedTerrainFlight(
+            __instance,
+            ref altitudeHold,
+            followTerrain);
     }
 
     [HarmonyPatch(
@@ -93,6 +131,16 @@ internal static class CommanderSupplyHeliPatches
         ref float altitudeHold,
         bool followTerrain)
     {
-        CommanderSupplyHeliService.RaiseAssignedTerrainClearance(__instance, ref altitudeHold, followTerrain);
+        CommanderSupplyHeliService.PrepareAssignedTerrainFlight(
+            __instance,
+            ref altitudeHold,
+            followTerrain);
+    }
+
+    [HarmonyPatch(typeof(SwivelDuctSystem), "FixedUpdate")]
+    [HarmonyPrefix]
+    private static void SwivelDuctFixedUpdatePrefix(SwivelDuctSystem __instance)
+    {
+        CommanderSupplyHeliService.ForceAssignedVerticalTakeoff(__instance);
     }
 }

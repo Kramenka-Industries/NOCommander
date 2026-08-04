@@ -13,6 +13,7 @@ internal sealed class CommanderInputController
     private readonly CommanderSupplyHeliService supplyHeliService;
     private readonly CommanderMobileEmplacementService mobileEmplacementService;
     private readonly CommanderAirCommandService airCommandService;
+    private CommanderPovCrewUi? povCrewUi;
 
     private bool isDragging;
     private Vector2 dragStart;
@@ -45,14 +46,28 @@ internal sealed class CommanderInputController
         Instance = this;
     }
 
+    internal void SetPovCrewUi(CommanderPovCrewUi ui)
+    {
+        povCrewUi = ui;
+    }
+
     internal void Tick()
     {
+        if (CommanderNavalPurchaseService.Instance?.AwaitingRallySelection == true)
+        {
+            return;
+        }
+
         if (spawnService.IsMapInteractionActive())
         {
             return;
         }
 
         Vector2 mousePosition = Input.mousePosition;
+        if (povCrewUi?.ContainsScreenPoint(mousePosition) == true)
+        {
+            return;
+        }
         if (tacticalMapService.ContainsScreenPoint(mousePosition))
         {
             return;
@@ -67,7 +82,7 @@ internal sealed class CommanderInputController
         HandleControlGroups();
         HandleBoxSelection(mousePosition);
 
-        if (CommanderSettings.SecondaryAction.IsDown())
+        if (CommanderShortcutInput.IsDown(CommanderSettings.SecondaryAction))
         {
             HandleSecondaryClick(mousePosition);
         }
